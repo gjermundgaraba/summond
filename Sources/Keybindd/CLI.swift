@@ -107,7 +107,7 @@ extension KeybinddCLI.Config {
     )
     var applicationPath: String?
 
-    @Option(name: .long, help: "Open mode: launch or current-space")
+    @Option(name: .long, help: "Open mode: launch, new-window, or move")
     var mode: String
 
     func validate() throws {
@@ -251,7 +251,7 @@ extension KeybinddCLI {
     mode: String
   ) throws -> AppBinding {
     let shortcut = Shortcut(key: key, mods: parsedModifiers(mods))
-    let openMode = try AppOpenMode(cliValue: mode)
+    let openMode = try AppOpenMode(parsing: mode)
     let app = try AppTarget(bundleID: bundleID, mode: openMode)
     return AppBinding(shortcut: shortcut, app: app)
   }

@@ -33,9 +33,11 @@ struct InstalledAppResolver: AppResolver {
 protocol MacOSAppRuntimeSystem: Sendable {
   func runningApplication(bundleIdentifier: String) -> RunningApplicationState?
   func hasWindowOnCurrentSpace(processID: pid_t) -> Bool
+  func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID]
   func activateApplication(bundleIdentifier: String) async -> Bool
   func launchApplication(identity: AppIdentity) async -> String?
   func openNewWindow(for identity: AppIdentity) async -> Bool
+  func moveWindowsToCurrentSpace(_ windowIDs: [CGWindowID], processID: pid_t) async -> Bool
   func waitForWindowOnCurrentSpace(processID: pid_t) async throws -> Bool
 }
 
@@ -54,31 +56,76 @@ struct MacOSAppRuntime: AppRuntime {
     switch mode {
     case .launch:
       return await launch(identity)
-    case .currentSpace:
+    case .newWindow:
       return await openOnCurrentSpace(identity)
+    case .move:
+      return await moveToCurrentSpace(identity)
     }
   }
 
   private func openOnCurrentSpace(_ identity: AppIdentity) async -> OpenAppResult {
-    guard
-      let app = system.runningApplication(bundleIdentifier: identity.bundleIdentifier),
-      !app.isTerminated
-    else {
+    guard let app = runningApp(identity) else {
       return await launch(identity)
     }
 
     if system.hasWindowOnCurrentSpace(processID: app.processID) {
-      guard await system.activateApplication(bundleIdentifier: identity.bundleIdentifier) else {
-        return .failed(
-          bundleIdentifier: identity.bundleIdentifier,
-          reason: "failed to activate existing window"
-        )
-      }
-
-      return .activatedExistingWindow(bundleIdentifier: identity.bundleIdentifier)
+      return await activateExistingWindow(identity)
     }
 
     return await openNewWindowOnCurrentSpace(identity, app: app)
+  }
+
+  private func moveToCurrentSpace(_ identity: AppIdentity) async -> OpenAppResult {
+    guard let app = runningApp(identity) else {
+      return await launch(identity)
+    }
+
+    if system.hasWindowOnCurrentSpace(processID: app.processID) {
+      return await activateExistingWindow(identity)
+    }
+
+    let windowIDs = system.windowIDsOnAnySpace(processID: app.processID)
+    guard !windowIDs.isEmpty else {
+      return await launch(identity)
+    }
+
+    guard await system.moveWindowsToCurrentSpace(windowIDs, processID: app.processID) else {
+      return .failed(
+        bundleIdentifier: identity.bundleIdentifier,
+        reason: "failed to move windows to current space"
+      )
+    }
+
+    guard await system.activateApplication(bundleIdentifier: identity.bundleIdentifier) else {
+      return .failed(
+        bundleIdentifier: identity.bundleIdentifier,
+        reason: "failed to activate app after moving windows"
+      )
+    }
+
+    return .movedToCurrentSpace(bundleIdentifier: identity.bundleIdentifier)
+  }
+
+  private func runningApp(_ identity: AppIdentity) -> RunningApplicationState? {
+    guard
+      let app = system.runningApplication(bundleIdentifier: identity.bundleIdentifier),
+      !app.isTerminated
+    else {
+      return nil
+    }
+
+    return app
+  }
+
+  private func activateExistingWindow(_ identity: AppIdentity) async -> OpenAppResult {
+    guard await system.activateApplication(bundleIdentifier: identity.bundleIdentifier) else {
+      return .failed(
+        bundleIdentifier: identity.bundleIdentifier,
+        reason: "failed to activate existing window"
+      )
+    }
+
+    return .activatedExistingWindow(bundleIdentifier: identity.bundleIdentifier)
   }
 
   private func openNewWindowOnCurrentSpace(
@@ -127,14 +174,17 @@ struct MacOSAppRuntime: AppRuntime {
 
 struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
   private let dockMenuOpener: DockMenuOpener
+  private let spaceMover: SpaceMover?
   private let logger: Logger
   private static let windowObserverTimeoutNanoseconds: UInt64 = 2_500_000_000
   private static let fallbackPollIntervalNanoseconds: UInt64 = 50_000_000
   private static let fallbackPollAttemptsAfterTimeout = 10
   private static let fallbackPollAttemptsWhenUnsupported = 60
+  private static let movedWindowPollAttempts = 20
 
   init(logger: Logger = Logger()) {
     self.dockMenuOpener = DockMenuOpener(logger: logger)
+    self.spaceMover = SpaceMover(logger: logger)
     self.logger = logger
   }
 
@@ -217,6 +267,47 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
 
       return ownerPID.int32Value == processID
     }
+  }
+
+  func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID] {
+    // .optionAll includes windows on other spaces (they are simply off-screen);
+    // layer 0 filters out status items, overlays, and other non-standard windows.
+    let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+    guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
+    else {
+      return []
+    }
+
+    return windowList.compactMap { window in
+      guard
+        let ownerPID = window[kCGWindowOwnerPID as String] as? NSNumber,
+        ownerPID.int32Value == processID,
+        let layer = window[kCGWindowLayer as String] as? NSNumber,
+        layer.intValue == 0,
+        let number = window[kCGWindowNumber as String] as? NSNumber
+      else {
+        return nil
+      }
+
+      return CGWindowID(number.uint32Value)
+    }
+  }
+
+  func moveWindowsToCurrentSpace(_ windowIDs: [CGWindowID], processID: pid_t) async -> Bool {
+    guard let spaceMover else {
+      logger.warning("[runtime] SkyLight unavailable, cannot move windows between spaces")
+      return false
+    }
+
+    guard spaceMover.moveWindowsToActiveSpace(windowIDs) else {
+      return false
+    }
+
+    let appeared = try? await pollForWindowOnCurrentSpace(
+      processID: processID,
+      attempts: Self.movedWindowPollAttempts
+    )
+    return appeared ?? false
   }
 
   func waitForWindowOnCurrentSpace(processID: pid_t) async throws -> Bool {

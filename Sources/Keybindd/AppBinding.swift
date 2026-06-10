@@ -75,39 +75,22 @@ extension BindingEditError: LocalizedError {
   }
 }
 
-enum AppOpenMode: String, Sendable, Equatable {
+enum AppOpenMode: String, Sendable, Equatable, CaseIterable {
   case launch
-  case currentSpace = "current_space"
+  case newWindow = "new_window"
+  case move
 
   var cliValue: String {
-    switch self {
-    case .launch:
-      "launch"
-    case .currentSpace:
-      "current-space"
-    }
+    rawValue.replacingOccurrences(of: "_", with: "-")
   }
 
-  init(cliValue: String) throws {
-    switch cliValue.lowercased() {
-    case "launch":
-      self = .launch
-    case "current-space":
-      self = .currentSpace
-    default:
-      throw BindingValidationError.unknownMode(cliValue)
+  init(parsing value: String) throws {
+    let normalized = value.lowercased().replacingOccurrences(of: "-", with: "_")
+    guard let mode = AppOpenMode(rawValue: normalized) else {
+      throw BindingValidationError.unknownMode(value)
     }
-  }
 
-  init(configValue: String) throws {
-    switch configValue.lowercased() {
-    case "launch":
-      self = .launch
-    case "current_space":
-      self = .currentSpace
-    default:
-      throw BindingValidationError.unknownMode(configValue)
-    }
+    self = mode
   }
 }
 

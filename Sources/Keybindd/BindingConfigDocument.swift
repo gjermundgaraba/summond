@@ -47,7 +47,7 @@ enum BindingConfigDocument {
   private static func binding(from record: BindingDocumentRecord) throws -> AppBinding {
     let shortcut = Shortcut(key: record.key, mods: record.mods)
     let app = try AppTarget(
-      bundleID: record.app.bundleID, mode: AppOpenMode(configValue: record.app.mode))
+      bundleID: record.app.bundleID, mode: AppOpenMode(parsing: record.app.mode))
     return AppBinding(shortcut: shortcut, app: app)
   }
 }

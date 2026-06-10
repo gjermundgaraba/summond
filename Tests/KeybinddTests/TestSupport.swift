@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 @testable import keybindd
@@ -79,14 +80,17 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
   private let lock = NSLock()
   private var runningApps: [String: RunningApplicationState] = [:]
   private var appsOnCurrentSpace: Set<pid_t> = []
+  private var windowIDsByPID: [pid_t: [CGWindowID]] = [:]
   private var waitResults: [pid_t: Bool] = [:]
   private var waitErrors: [pid_t: Error] = [:]
   private var launchResults: [String: String?] = [:]
   private var activationSuccess = true
   private var newWindowSuccess = true
+  private var moveSuccess = true
   private var launchLog: [String] = []
   private var activatedBundleIDLog: [String] = []
   private var newWindowRequestLog: [String] = []
+  private var moveRequestLog: [[CGWindowID]] = []
 
   func setRunningApp(_ app: RunningApplicationState?) {
     lock.withLock {
@@ -139,6 +143,18 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
     }
   }
 
+  func setWindowIDs(_ windowIDs: [CGWindowID], for processID: pid_t) {
+    lock.withLock {
+      windowIDsByPID[processID] = windowIDs
+    }
+  }
+
+  func setMoveSuccess(_ value: Bool) {
+    lock.withLock {
+      moveSuccess = value
+    }
+  }
+
   func runningApplication(bundleIdentifier: String) -> RunningApplicationState? {
     lock.withLock { runningApps[bundleIdentifier] }
   }
@@ -168,6 +184,17 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
     }
   }
 
+  func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID] {
+    lock.withLock { windowIDsByPID[processID] ?? [] }
+  }
+
+  func moveWindowsToCurrentSpace(_ windowIDs: [CGWindowID], processID: pid_t) async -> Bool {
+    lock.withLock {
+      moveRequestLog.append(windowIDs)
+      return moveSuccess
+    }
+  }
+
   func waitForWindowOnCurrentSpace(processID: pid_t) async throws -> Bool {
     let outcome = lock.withLock { () -> (Bool?, Error?) in
       (waitResults[processID], waitErrors[processID])
@@ -190,6 +217,10 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
 
   func newWindowRequests() -> [String] {
     lock.withLock { newWindowRequestLog }
+  }
+
+  func moveRequests() -> [[CGWindowID]] {
+    lock.withLock { moveRequestLog }
   }
 }
 

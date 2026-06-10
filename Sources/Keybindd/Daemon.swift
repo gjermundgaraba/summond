@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -26,6 +27,15 @@ final class Daemon {
   func start() {
     guard PidFile.acquire(logger: logger) else {
       Foundation.exit(1)
+    }
+
+    // Register as a (headless) GUI application. WindowServer only honors the
+    // private space-move operation behind `move` mode for processes with a
+    // registered application connection; `.accessory` keeps the daemon out of
+    // the Dock and menu bar. The run loop is still driven by `CFRunLoopRun()`.
+    // `start()` is the main-thread entry point, so the main-actor work is safe.
+    MainActor.assumeIsolated {
+      _ = NSApplication.shared.setActivationPolicy(.accessory)
     }
 
     let fileManager = FileManager.default

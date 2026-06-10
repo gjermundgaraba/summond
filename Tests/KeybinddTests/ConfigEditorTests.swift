@@ -146,12 +146,12 @@ struct ConfigEditorTests {
     }
   }
 
-  @Test("Add serializes current_space mode")
-  func addSerializesCurrentSpaceMode() throws {
+  @Test("Add serializes new_window mode")
+  func addSerializesNewWindowMode() throws {
     try withTemporaryConfigURL { configURL in
       let result = try BindingConfigStore.add(
         try makeBinding(
-          key: "f6", mods: ["cmd"], bundleID: "com.apple.safari", mode: .currentSpace),
+          key: "f6", mods: ["cmd"], bundleID: "com.apple.safari", mode: .newWindow),
         to: configURL.path,
         resolver: TestAppResolver(appsByBundleID: [
           "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
@@ -159,8 +159,26 @@ struct ConfigEditorTests {
       )
 
       let content = try String(contentsOf: configURL, encoding: .utf8)
-      #expect(result.app.mode == .currentSpace)
-      #expect(content.contains("mode = \"current_space\""))
+      #expect(result.app.mode == .newWindow)
+      #expect(content.contains("mode = \"new_window\""))
+    }
+  }
+
+  @Test("Add serializes move mode")
+  func addSerializesMoveMode() throws {
+    try withTemporaryConfigURL { configURL in
+      let result = try BindingConfigStore.add(
+        try makeBinding(
+          key: "f7", mods: ["cmd"], bundleID: "com.apple.safari", mode: .move),
+        to: configURL.path,
+        resolver: TestAppResolver(appsByBundleID: [
+          "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
+        ])
+      )
+
+      let content = try String(contentsOf: configURL, encoding: .utf8)
+      #expect(result.app.mode == .move)
+      #expect(content.contains("mode = \"move\""))
     }
   }
 

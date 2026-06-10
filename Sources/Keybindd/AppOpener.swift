@@ -57,6 +57,8 @@ actor AppOpener {
       logger.info("[\(description)] activated '\(bundleIdentifier)' on the current space")
     case .openedNewWindow(let bundleIdentifier):
       logger.info("[\(description)] opened new window for '\(bundleIdentifier)'")
+    case .movedToCurrentSpace(let bundleIdentifier):
+      logger.info("[\(description)] moved '\(bundleIdentifier)' to the current space")
     case .failed(let bundleIdentifier, let reason):
       logger.warning("[\(description)] \(bundleIdentifier): \(reason)")
     }

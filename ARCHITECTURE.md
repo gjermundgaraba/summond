@@ -36,11 +36,12 @@ keybindd is a macOS foreground daemon that intercepts global key events and open
 Runtime core. On `start()`:
 
 1. Acquires a PID file (`PidFile`) to enforce single-instance
-2. Creates the config file if missing
-3. Loads and compiles bindings into a `BindingSnapshot`
-4. Installs signal handlers (`SIGTERM`/`SIGINT` → shutdown)
-5. Installs a `CGEvent` tap intercepting all `keyDown` events
-6. Runs `CFRunLoopRun()` on the main thread
+2. Registers as an `.accessory` `NSApplication` (no Dock/menu-bar presence). This is required so WindowServer accepts the private space-move operation behind `move` mode; the run loop is still `CFRunLoopRun()`, not `NSApp.run()`.
+3. Creates the config file if missing
+4. Loads and compiles bindings into a `BindingSnapshot`
+5. Installs signal handlers (`SIGTERM`/`SIGINT` → shutdown)
+6. Installs a `CGEvent` tap intercepting all `keyDown` events
+7. Runs `CFRunLoopRun()` on the main thread
 
 If the initial config load fails, startup aborts. Config is loaded once at startup; to pick up changes, stop and restart the daemon.
 
@@ -61,7 +62,7 @@ Important behavior: matched shortcuts are consumed immediately. If app opening l
 - **`Shortcut`** — key name + modifier names (strings)
 - **`AppTarget`** — bundle ID + `AppOpenMode`
 - **`AppBinding`** — a `Shortcut` + `AppTarget`
-- **`AppOpenMode`** — `.launch` or `.currentSpace`; parses both CLI form (`current-space`) and config form (`current_space`)
+- **`AppOpenMode`** — `.launch`, `.newWindow`, or `.move`; a single parser accepts both CLI form (`new-window`) and config form (`new_window`)
 - Error enums: `BindingValidationError`, `BindingConfigError`, `BindingEditError`
 
 ### App Opening Pipeline
@@ -69,8 +70,9 @@ Important behavior: matched shortcuts are consumed immediately. If app opening l
 | File | Role |
 |---|---|
 | `AppRuntime.swift` | Protocols (`AppResolver`, `AppRuntime`) and types (`AppIdentity`, `OpenAppResult`, `RunningApplicationState`). Testability seam. |
-| `MacOSAppRuntime.swift` | macOS implementation. `InstalledAppResolver` uses `NSWorkspace` to find apps. `MacOSAppRuntime` handles two modes: **launch** (via `NSWorkspace.openApplication`) and **current_space** (checks for existing windows via `CGWindowListCopyWindowInfo`; if on another space, triggers "New Window" via the Dock menu, waits for a window to appear on the current space, then activates. Dock-menu, window-appearance, and activation failures are reported as logged app-open failures rather than crashes). |
+| `MacOSAppRuntime.swift` | macOS implementation. `InstalledAppResolver` uses `NSWorkspace` to find apps. `MacOSAppRuntime` handles three modes: **launch** (via `NSWorkspace.openApplication`), **new_window** (checks for existing windows via `CGWindowListCopyWindowInfo`; if on another space, triggers "New Window" via the Dock menu, waits for a window to appear on the current space, then activates), and **move** (activates a window already on the current space; otherwise moves the app's existing windows here via `SpaceMover` and activates; launches if not running or windowless). Dock-menu, window-move, window-appearance, and activation failures are reported as logged app-open failures rather than crashes. |
 | `DockMenuOpener.swift` | Accessibility-based "New Window" triggering. Finds the app in the Dock via the AX API, opens the context menu, locates the "New Window" item, and presses it. Includes retry logic for menu appearance timing. |
+| `SpaceMover.swift` | Moves other apps' windows to the active Mission Control space via private SkyLight functions. Picks one of three mechanisms at startup: a bridged window-management operation (macOS 15+/26, the no-SIP path, located by scanning SkyLight's Mach-O symbol table since the function has internal linkage), the `SLSSpaceSetCompatID` + `SLSSetWindowListWorkspace` compat-ID workaround (macOS 12.7+/13.6+/14.5+), or direct `SLSMoveWindowsToManagedSpace` (older). All symbols are resolved at runtime so a missing one degrades to a logged failure. The active space is read via `SLSManagedDisplayGetCurrentSpace` on the menu-bar display. |
 
 ### AppOpener — `AppOpener.swift`
 
@@ -102,10 +104,14 @@ CGEvent tap (keyDown)
       → AppOpener.open(binding)             [actor, deduplicates]
         → AppRuntime.open(identity, mode)
           → launch:      NSWorkspace.openApplication
-          → current_space:
+          → new_window:
               window here?       → activate (or fail)
               running elsewhere? → DockMenuOpener → wait for window → activate (or fail)
               not running?       → launch
+          → move:
+              window here?         → activate (or fail)
+              windows elsewhere?   → SpaceMover → wait for window → activate (or fail)
+              not running/no win?  → launch
     → swallow event (return nil from tap)
 ```
 
@@ -124,7 +130,8 @@ This means the hot path (`keyDown` → binding lookup) stays synchronous and che
 ## Operational Requirements / Caveats
 
 - **Accessibility permission is required** for the event tap and for Dock accessibility interactions.
-- `current_space` depends on macOS/Dock accessibility behavior and on the target app exposing a usable **New Window** menu item in its Dock menu.
+- `new_window` depends on macOS/Dock accessibility behavior and on the target app exposing a usable **New Window** menu item in its Dock menu.
+- `move` depends on private SkyLight window-server functions (no public API exists for moving another app's windows between spaces); if a future macOS removes them, moves fail as logged app-open failures.
 - Some apps may not support opening a new window from the Dock menu, may localize the item unexpectedly, may fail activation, or may show no window even after launch; these cases surface as logged failures rather than crashes.
 - Config validation/compilation is **machine-specific** because bundle IDs are resolved against apps installed on the current Mac.
 - `start` is a **foreground** process; lifecycle control (`stop`) happens from another shell via signals and the PID file.
@@ -132,7 +139,7 @@ This means the hot path (`keyDown` → binding lookup) stays synchronous and che
 ## Failure Semantics
 
 - Startup fails fast on: PID-file conflicts, config creation failure, invalid/unresolvable initial config, or inability to install the event tap.
-- App-opening failures are non-fatal; they are logged by `AppOpener`. This includes Dock-menu failures, missing new windows on the current space, and activation failures in `current_space` mode.
+- App-opening failures are non-fatal; they are logged by `AppOpener`. This includes Dock-menu failures, window-move failures, missing windows on the current space, and activation failures in `new_window` and `move` modes.
 - A matched binding consumes the triggering key even if the later open attempt fails.
 
 ## Dependencies

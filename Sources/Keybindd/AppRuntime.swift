@@ -9,6 +9,7 @@ enum OpenAppResult: Sendable, Equatable {
   case launched(bundleIdentifier: String)
   case activatedExistingWindow(bundleIdentifier: String)
   case openedNewWindow(bundleIdentifier: String)
+  case movedToCurrentSpace(bundleIdentifier: String)
   case failed(bundleIdentifier: String, reason: String)
 }
 

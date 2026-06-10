@@ -82,7 +82,7 @@ keybindd config add \
   --key f5 \
   --mods cmd,shift \
   --bundle-id com.apple.Safari \
-  --mode current-space
+  --mode new-window
 ```
 
 Add a binding by application path:
@@ -127,7 +127,7 @@ mods = ["cmd", "shift"]
 
 [bindings.app]
 bundle_id = "com.apple.Safari"
-mode = "current_space"
+mode = "new_window"
 
 [[bindings]]
 key = "f6"
@@ -143,7 +143,7 @@ Each binding has:
 - `key`: key name such as `a`, `space`, `return`, `f5`
 - `mods`: zero or more modifiers
 - `app.bundle_id`: target app bundle identifier
-- `app.mode`: `launch` or `current_space`
+- `app.mode`: `launch`, `new_window`, or `move`
 
 Supported modifier names:
 
@@ -167,7 +167,7 @@ Representative supported keys include:
 
 Performs a normal app launch/activation.
 
-### `current_space`
+### `new_window`
 
 Prefers opening or focusing a window on the current macOS space:
 
@@ -176,6 +176,18 @@ Prefers opening or focusing a window on the current macOS space:
 - if the app is not running, it is launched normally
 
 If Dock menu access, window creation, or activation fails, the binding still consumes the key press and the failure is logged.
+
+### `move`
+
+Brings the app's existing windows to the current macOS space instead of opening new ones:
+
+- if the app already has a window on the current space, `keybindd` tries to activate it
+- if the app is running with windows on another space, those windows are moved to the current space and the app is activated
+- if the app is not running, or is running without any windows, it is launched normally
+
+Moving windows between spaces relies on private SkyLight (window server) functions — the same mechanism tiling window managers like yabai use — because macOS has no public API for it. On macOS 15+ (including 26) this uses the bridged window-management operation, which works without disabling SIP. If the underlying functions are unavailable on a future macOS version, the move fails and is logged; the key press is still consumed.
+
+In the CLI, modes are spelled with dashes: `--mode launch`, `--mode new-window`, `--mode move`.
 
 ## Notes
 

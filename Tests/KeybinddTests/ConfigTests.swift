@@ -11,7 +11,7 @@ struct ConfigTests {
       [[bindings]]
       key = "f5"
       mods = ["cmd", "shift"]
-      app = { bundle_id = "com.apple.Safari", mode = "current_space" }
+      app = { bundle_id = "com.apple.Safari", mode = "new_window" }
 
       [[bindings]]
       key = "space"
@@ -33,7 +33,7 @@ struct ConfigTests {
     #expect(result.snapshot.count == 2)
     #expect(result.bindings[0].description == "cmd+shift+f5")
     #expect(result.bindings[0].app.bundleID == "com.apple.Safari")
-    #expect(result.bindings[0].app.mode == .currentSpace)
+    #expect(result.bindings[0].app.mode == .newWindow)
     #expect(result.bindings[1].app.mode == .launch)
   }
 
@@ -46,7 +46,7 @@ struct ConfigTests {
 
       [bindings.app]
       bundle_id = "com.apple.Safari"
-      mode = "current_space"
+      mode = "new_window"
       """
 
     let result = try loadConfig(
@@ -61,7 +61,7 @@ struct ConfigTests {
     #expect(result.bindings.count == 1)
     #expect(result.bindings[0].description == "cmd+f5")
     #expect(result.bindings[0].app.bundleID == "com.apple.Safari")
-    #expect(result.bindings[0].app.mode == .currentSpace)
+    #expect(result.bindings[0].app.mode == .newWindow)
   }
 
   @Test("Invalid bindings fail the entire file")
@@ -85,7 +85,7 @@ struct ConfigTests {
       [[bindings]]
       key = "enter"
       mods = ["cmd"]
-      app = { bundle_id = "com.apple.Terminal", mode = "current_space" }
+      app = { bundle_id = "com.apple.Terminal", mode = "new_window" }
       """
 
     #expect(throws: BindingConfigError.duplicateShortcut(index: 2, description: "cmd+enter")) {
@@ -184,6 +184,24 @@ struct ConfigTests {
   }
 }
 
+@Suite("App open mode")
+struct AppOpenModeTests {
+  @Test("Parses CLI and config spellings")
+  func parsesSpellings() throws {
+    #expect(try AppOpenMode(parsing: "launch") == .launch)
+    #expect(try AppOpenMode(parsing: "new-window") == .newWindow)
+    #expect(try AppOpenMode(parsing: "new_window") == .newWindow)
+    #expect(try AppOpenMode(parsing: "MOVE") == .move)
+  }
+
+  @Test("Rejects unknown modes")
+  func rejectsUnknownModes() {
+    #expect(throws: BindingValidationError.unknownMode("focus")) {
+      try AppOpenMode(parsing: "focus")
+    }
+  }
+}
+
 @Suite("Binding compiler")
 struct BindingCompilerTests {
   @Test("Compiling a single binding fails when the bundle is missing")
@@ -206,7 +224,7 @@ struct ConfigSerializationTests {
     let bindings = [
       try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari", mode: .launch),
       try makeBinding(
-        key: "space", mods: ["cmd", "shift"], bundleID: "com.apple.terminal", mode: .currentSpace),
+        key: "space", mods: ["cmd", "shift"], bundleID: "com.apple.terminal", mode: .newWindow),
     ]
 
     let result = BindingConfigDocument.serialize(bindings)
