@@ -7,6 +7,8 @@ optional menu bar item shows agent health.
 ## Requirements
 
 - macOS 26.0+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45.4+
+- [Tart](https://tart.run/) for `make test-tart`
 - Accessibility permission for the `Keybindd` entry that represents the
   bundled `KeybinddAgent` helper
 - Input Monitoring permission for the `Keybindd` entry that represents the
@@ -125,6 +127,20 @@ Run the full test suite:
 ```bash
 make test
 ```
+
+Run the same test gate in a clean disposable Tart VM:
+
+```bash
+make test-tart
+```
+
+`make test-tart` ensures a reusable Tart base VM named
+`codex-macos-tahoe-xcodegen-base` exists, clones it to a disposable VM, mounts
+this checkout at `/Volumes/My Shared Files/keybindd`, copies it to a guest-local
+temp directory, then runs `make test` there. The disposable VM is stopped and
+deleted after the run. Use `BASE_VM=<name>` to choose a different prepared base.
+If the base is missing, `scripts/tart-ensure-base.sh` creates it from
+`ghcr.io/cirruslabs/macos-tahoe-xcode:latest` and installs XcodeGen.
 
 Run only Core package tests or only Xcode app tests:
 
