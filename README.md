@@ -1,206 +1,167 @@
 # keybindd
 
-Foreground app-binding daemon for macOS 13+.
-
-`keybindd` watches global key presses and opens or focuses macOS apps based on a TOML config file.
+keybindd is a macOS app and background agent for global app shortcuts. The
+preferences app edits shortcuts, the LaunchAgent intercepts key events, and an
+optional menu bar item shows agent health.
 
 ## Requirements
 
-- macOS 13+
-- Accessibility permission for `keybindd` in:
-  - System Settings > Privacy & Security > Accessibility
-
-Without Accessibility access, the event tap cannot be installed and the daemon will exit.
+- macOS 26.0+
+- Accessibility permission for the `Keybindd` entry that represents the
+  bundled `KeybinddAgent` helper
+- Input Monitoring permission for the `Keybindd` entry that represents the
+  bundled `KeybinddAgent` helper
+- Login Items approval for the bundled LaunchAgent when macOS asks for it
 
 ## Install
 
-```bash
-make install-binary
-```
+1. Drag `Keybindd.app` to `/Applications`.
+2. Open `Keybindd.app`.
+3. Click **Enable Service**.
+4. If the service shows **Requires Approval**, open System Settings > General >
+   Login Items & Extensions and approve Keybindd.
+5. Grant Accessibility permission to the `Keybindd` helper entry in System
+   Settings > Privacy & Security > Accessibility.
+6. Grant Input Monitoring permission to the `Keybindd` helper entry in System
+   Settings > Privacy & Security > Input Monitoring.
 
-This builds a release binary and installs it to:
+The app installs its service from inside the bundle with `SMAppService`. The
+agent runs only in your Aqua login session.
 
-```text
-~/.local/bin/keybindd
-```
+## Configure Shortcuts
 
-## Default paths
+Use the bindings editor in `Keybindd.app` to add, edit, or delete shortcuts.
+You can pick an installed app, choose a `.app` bundle manually, or paste a
+bundle identifier. The shortcut recorder accepts supported keys with optional
+modifiers. Modifier-less shortcuts are allowed; the app warns before saving
+shortcuts that would shadow normal typing, such as bare or Shift-only literal
+keys.
 
-`keybindd` uses these paths by default:
+Supported modifiers:
 
-- Config: `~/.config/keybindd/config.toml`
-- PID file: `~/.config/keybindd/keybindd.pid`
-
-The config file is created automatically when needed.
-
-## Usage
-
-Start the daemon in the foreground:
-
-```bash
-keybindd start
-```
-
-Enable verbose key event logging:
-
-```bash
-keybindd start --verbose
-```
-
-Stop the running daemon:
-
-```bash
-keybindd stop
-```
-
-The daemon loads the config once at startup. To apply config changes, stop and restart:
-
-```bash
-keybindd stop && keybindd start
-```
-
-Commands that operate on the config (`start`, `config list`, `config add`, `config remove`, `config validate`) also accept `--config <path>` to use a non-default config file.
-
-## Managing config from the CLI
-
-List bindings:
-
-```bash
-keybindd config list
-```
-
-Validate the current config against the machine:
-
-```bash
-keybindd config validate
-```
-
-Add a binding by bundle ID:
-
-```bash
-keybindd config add \
-  --key f5 \
-  --mods cmd,shift \
-  --bundle-id com.apple.Safari \
-  --mode new-window
-```
-
-Add a binding by application path:
-
-```bash
-keybindd config add \
-  --key f6 \
-  --mods cmd \
-  --application-path /Applications/Safari.app \
-  --mode launch
-```
-
-Remove a binding by exact shortcut:
-
-```bash
-keybindd config remove --key f5 --mods cmd,shift
-```
-
-Remove by key only:
-
-```bash
-keybindd config remove --key f6
-```
-
-If more than one binding uses the same key with different modifiers, `config remove --key ...` is rejected until you also pass `--mods`.
-
-`keybindd config add` requires exactly one of:
-
-- `--bundle-id`
-- `--application-path`
-
-When `--application-path` is used, `keybindd` reads the app bundle metadata and stores the resolved bundle identifier in the config.
-
-## Config format
-
-Example:
-
-```toml
-[[bindings]]
-key = "f5"
-mods = ["cmd", "shift"]
-
-[bindings.app]
-bundle_id = "com.apple.Safari"
-mode = "new_window"
-
-[[bindings]]
-key = "f6"
-mods = ["cmd"]
-
-[bindings.app]
-bundle_id = "com.apple.Terminal"
-mode = "launch"
-```
-
-Each binding has:
-
-- `key`: key name such as `a`, `space`, `return`, `f5`
-- `mods`: zero or more modifiers
-- `app.bundle_id`: target app bundle identifier
-- `app.mode`: `launch`, `new_window`, or `move`
-
-Supported modifier names:
-
-- `cmd` / `command`
+- `command`
 - `shift`
-- `alt` / `opt` / `option`
-- `ctrl` / `control`
+- `option`
+- `control`
 
-Representative supported keys include:
+Representative supported keys include letters, numbers, function keys
+`f1`-`f20`, arrows, `home`, `end`, `pageup`, `pagedown`, `space`, `tab`,
+`return`, `escape`, `delete`, and common punctuation.
 
-- letters: `a`-`z`
-- numbers: `0`-`9`
-- function keys: `f1`-`f20`
-- navigation: `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`
-- common special keys: `space`, `tab`, `return`/`enter`, `escape`/`esc`, `delete`/`backspace`
-- punctuation such as `-`, `=`, `[`, `]`, `\\`, `;`, `'`, `,`, `.`, `/`, `` ` ``
+### Open Modes
 
-## Open modes
+`launch` performs a normal app launch or activation.
 
-### `launch`
+`new-window` prefers a window on the current Space. If the app is already
+running elsewhere, keybindd asks the Dock for the app's **New Window** menu item,
+waits for a window on the current Space, and then activates the app. If Dock
+menu access, window creation, or activation fails, the shortcut is still
+consumed and the failure is logged.
 
-Performs a normal app launch/activation.
+`move` brings existing windows to the current Space when possible. It uses
+private SkyLight window-server functions because macOS has no public API for
+moving another app's windows between Spaces. On supported macOS 26+ systems,
+this uses the bridged window-management path that works without disabling SIP.
+If the underlying functions disappear in a future macOS release, the move is
+logged as a non-fatal failure.
 
-### `new_window`
+## Menu Bar Item
 
-Prefers opening or focusing a window on the current macOS space:
+Enable the menu bar item from the preferences app. It is installed as the
+bundled login item `KeybinddStatus.app` and shows agent reachability,
+Accessibility, Input Monitoring, shortcut listener, and configuration state. Its
+menu can open preferences and reload the agent.
 
-- if the app already has a window on the current space, `keybindd` tries to activate it
-- if the app is running on another space, `keybindd` asks the Dock for a new window via the app's `New Window` menu item when possible, waits for that window to appear on the current space, then tries to activate the app
-- if the app is not running, it is launched normally
+## Troubleshooting
 
-If Dock menu access, window creation, or activation fails, the binding still consumes the key press and the failure is logged.
+If the service shows **Requires Approval**, approve Keybindd in System Settings >
+General > Login Items & Extensions.
 
-### `move`
+If shortcuts stop working after rebuilding or re-signing the app, macOS may have
+revoked Accessibility trust for the old signature. Reset it and grant permission
+again:
 
-Brings the app's existing windows to the current macOS space instead of opening new ones:
+```bash
+tccutil reset Accessibility net.garaba.keybindd.agent
+tccutil reset ListenEvent net.garaba.keybindd.agent
+```
 
-- if the app already has a window on the current space, `keybindd` tries to activate it
-- if the app is running with windows on another space, those windows are moved to the current space and the app is activated
-- if the app is not running, or is running without any windows, it is launched normally
+Stream logs from the app, agent, and status item:
 
-Moving windows between spaces relies on private SkyLight (window server) functions — the same mechanism tiling window managers like yabai use — because macOS has no public API for it. On macOS 15+ (including 26) this uses the bridged window-management operation, which works without disabling SIP. If the underlying functions are unavailable on a future macOS version, the move fails and is logged; the key press is still consumed.
+```bash
+log stream --predicate 'subsystem == "net.garaba.keybindd"'
+```
 
-In the CLI, modes are spelled with dashes: `--mode launch`, `--mode new-window`, `--mode move`.
+Useful service checks:
 
-## Notes
+```bash
+make project
+make build
+make test
+```
 
-- Only one daemon instance can run at a time.
-- `start` runs in the foreground; use another terminal to run `stop`.
-- Config validation fails if a binding uses an unknown key, unknown modifiers, an unknown mode, a duplicate shortcut, or a bundle ID that is not installed on the current machine.
-- Config is loaded once at startup; there is no live reload. Restart the daemon to pick up changes.
+## Build From Source
 
-## Development
+Show the available build, test, lint, and packaging commands:
+
+```bash
+make help
+```
+
+Generate the Xcode project:
+
+```bash
+make project
+```
+
+Build the Debug app:
 
 ```bash
 make build
-make test
-make lint
-make lint-fix
 ```
+
+Run the full test suite:
+
+```bash
+make test
+```
+
+Run only Core package tests or only Xcode app tests:
+
+```bash
+make core-test
+make app-test
+```
+
+Run formatting checks:
+
+```bash
+make lint
+```
+
+Create local release artifacts:
+
+```bash
+SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" make release-local
+```
+
+`make release-build` is an alias for `make release-local`; it creates a signed
+Release app and zip without notarization for local validation.
+
+Create Developer ID artifacts and submit them for notarization:
+
+```bash
+TEAM_ID=TEAMID \
+NOTARY_PROFILE=keybindd-notary \
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+make release
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the bundle layout, XPC boundary,
+storage format, and release signing flow.
+
+## v2 Breaking Changes
+
+keybindd v2 is an app plus LaunchAgent, not the old foreground CLI/TOML daemon.
+Configuration now lives as JSON data in the shared defaults suite
+`net.garaba.keybindd.shared` and is edited through `Keybindd.app`.

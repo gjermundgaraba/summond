@@ -1,7 +1,24 @@
 # keybindd
 
-macOS foreground daemon that intercepts global key events and opens or focuses applications based on a TOML config file.
+macOS app plus LaunchAgent that intercepts global key events and opens, focuses,
+or moves application windows based on shortcuts configured in the preferences
+UI. See [ARCHITECTURE.md](ARCHITECTURE.md) for components, data flow,
+concurrency, failure semantics, bundle layout, and signing/notarization notes.
 
-## Architecture
+## Commands
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full component breakdown, data flow diagrams, concurrency model, and failure semantics.
+```bash
+make help
+make project
+make build
+make dev-build
+make core-build
+make test
+make core-test
+make app-test
+make lint
+make lint-fix
+make release-local
+make release-build
+make release
+```

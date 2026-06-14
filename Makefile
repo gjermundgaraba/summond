@@ -1,30 +1,56 @@
-.PHONY: build test lint lint-fix install-binary
+.PHONY: help project build dev-build core-build test core-test app-test lint lint-fix release-local release-build release
 
-INSTALL_DIR := $(HOME)/.local/bin
-BINARY_NAME := keybindd
-SOURCE_BINARY := .build/release/$(BINARY_NAME)
-TARGET_BINARY := $(INSTALL_DIR)/$(BINARY_NAME)
-TEMP_BINARY := $(INSTALL_DIR)/.$(BINARY_NAME).tmp
+XCODEBUILD ?= xcodebuild
+XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
+PROJECT := Keybindd.xcodeproj
+SCHEME := Keybindd
+DESTINATION ?= platform=macOS
 
-build:
-	swift build -c release
+help:
+	@printf '%s\n' \
+		'Targets:' \
+		'  make project        Generate Keybindd.xcodeproj with XcodeGen' \
+		'  make build          Build the Debug macOS app (alias: dev-build)' \
+		'  make dev-build      Build the Debug macOS app' \
+		'  make core-build     Build the Core Swift package' \
+		'  make test           Run Core package tests and app unit tests' \
+		'  make core-test      Run Core package tests' \
+		'  make app-test       Run Xcode app unit tests' \
+		'  make lint           Run swift-format lint' \
+		'  make lint-fix       Apply swift-format formatting' \
+		'  make release-local  Create local signed Release app/zip without notarization' \
+		'  make release-build  Alias for release-local' \
+		'  make release        Create Developer ID signed and notarized app/zip'
 
-test:
-	swift test
+project:
+	$(XCODEGEN) generate
+
+build: dev-build
+
+dev-build: project
+	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration Debug build
+
+core-build:
+	swift build --package-path Core
+
+test: core-test app-test
+
+core-test:
+	swift test --package-path Core
+
+app-test: project
+	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)'
 
 lint:
-	xcrun swift format lint --recursive Sources Tests
+	xcrun swift format lint --recursive Core/Sources Core/Tests App AppTests Agent Status
 
 lint-fix:
-	xcrun swift format format --in-place --recursive Sources Tests
+	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status
 
-install-binary: build
-	@mkdir -p "$(INSTALL_DIR)"
-	@cp "$(SOURCE_BINARY)" "$(TEMP_BINARY)"
-	@chmod 755 "$(TEMP_BINARY)"
-	@mv -f "$(TEMP_BINARY)" "$(TARGET_BINARY)"
-	@echo "Installed $(TARGET_BINARY)"
-	@case ":$(PATH):" in \
-		*:"$(INSTALL_DIR)":*) ;; \
-		*) echo "PATH hint: add $(INSTALL_DIR) to PATH" ;; \
-	esac
+release-local:
+	scripts/release.sh --local
+
+release-build: release-local
+
+release:
+	scripts/release.sh

@@ -1,157 +1,282 @@
 # Architecture
 
-keybindd is a macOS foreground daemon that intercepts global key events and opens or focuses applications based on a TOML config file.
+keybindd is a macOS preferences app, LaunchAgent, status item, and shared core
+library for global app shortcuts.
 
-## Layer Diagram
+## Component Diagram
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  CLI (CLI.swift)                                        │
-│  swift-argument-parser subcommands:                     │
-│    start · stop · config {list,add,remove,validate}     │
-└────────────┬────────────────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────────────────┐
-│  Daemon (Daemon.swift)                                  │
-│  CFRunLoop + CGEvent tap + signal handlers              │
-├────────┬───────────────────┬────────────────────────────┤
-│ Config  │                   │   App Opening              │
-│ Pipeline│                   │   Pipeline                 │
-└─────────┴───────────────────┴────────────────────────────┘
+┌──────────────────────────┐        keybindd:// URLs
+│ KeybinddStatus.app       │ ─────────────────────────┐
+│ menu bar login item      │                          │
+└────────────┬─────────────┘                          │
+             │ XPC status/reload                      │
+             ▼                                        ▼
+┌──────────────────────────┐   SMAppService   ┌──────────────────────────┐
+│ KeybinddAgent            │ ◀──────────────▶ │ Keybindd.app             │
+│ LaunchAgent + listener   │                  │ preferences + service UI │
+└────────────┬─────────────┘                  └────────────┬─────────────┘
+             │                                             │
+             └──────────────┬──────────────────────────────┘
+                            ▼
+                ┌──────────────────────────┐
+                │ KeybinddCore             │
+                │ config, compiler, XPC,   │
+                │ engine, app opening      │
+                └────────────┬─────────────┘
+                             ▼
+                UserDefaults suite
+                net.garaba.keybindd.shared
 ```
 
 ## Components
 
-### CLI — `CLI.swift`
+### `Keybindd.app`
 
-`@main` entry point using `swift-argument-parser`. Subcommands:
+SwiftUI preferences app with bundle identifier `net.garaba.keybindd`.
 
-- **`start`** — creates a `Daemon` and calls `.start()`
-- **`stop`** — reads the PID file, sends `SIGTERM`
-- **`config list/add/remove/validate`** — config inspection/editing via `BindingConfigStore`
-  - `config add` accepts either a bundle ID or an application path; application paths are resolved to bundle IDs before saving
+- Edits stored bindings and verbose logging.
+- Registers/unregisters the LaunchAgent with
+  `SMAppService.agent(plistName: "net.garaba.keybindd.agent.plist")`.
+- Registers/unregisters the menu bar login item with
+  `SMAppService.loginItem(identifier: "net.garaba.keybindd.ui")`.
+- Handles `keybindd://` URLs from the status item.
+- Talks to the agent over Mach XPC service
+  `net.garaba.keybindd.agent.xpc`.
 
-### Daemon — `Daemon.swift`
+### `KeybinddAgent`
 
-Runtime core. On `start()`:
+LaunchAgent embedded as a faceless helper app bundle at
+`Contents/Resources/KeybinddAgent.app` (bundle identifier
+`net.garaba.keybindd.agent`, `LSUIElement`). It is a bundle rather than a bare
+executable so that the Accessibility permission it requests displays as
+"Keybindd" with the app icon — TCC shows the requesting bundle's display name
+and icon, and a bare tool would show the raw executable name and a generic
+icon. The LaunchAgent plist's `BundleProgram` points at
+`Contents/Resources/KeybinddAgent.app/Contents/MacOS/KeybinddAgent`.
 
-1. Acquires a PID file (`PidFile`) to enforce single-instance
-2. Registers as an `.accessory` `NSApplication` (no Dock/menu-bar presence). This is required so WindowServer accepts the private space-move operation behind `move` mode; the run loop is still `CFRunLoopRun()`, not `NSApp.run()`.
-3. Creates the config file if missing
-4. Loads and compiles bindings into a `BindingSnapshot`
-5. Installs signal handlers (`SIGTERM`/`SIGINT` → shutdown)
-6. Installs a `CGEvent` tap intercepting all `keyDown` events
-7. Runs `CFRunLoopRun()` on the main thread
+- Runs in the user's Aqua session.
+- Loads configuration from the shared defaults suite.
+- Installs a global `CGEvent` tap after Accessibility and Input Monitoring
+  permissions are granted.
+- Exports XPC status, reload, Accessibility-prompt, and Input Monitoring-prompt
+  requests.
+- Uses `KeepAlive` crash-only semantics: launchd restarts it after an
+  unsuccessful exit, but it is not a polling supervisor.
 
-If the initial config load fails, startup aborts. Config is loaded once at startup; to pick up changes, stop and restart the daemon.
+### `KeybinddStatus.app`
 
-When a key event arrives, the tap extracts the key code and modifier flags, queries `BindingState.match()`, and if matched, dispatches to `AppOpener.open()` and swallows the event.
+Menu bar login item embedded at
+`Contents/Library/LoginItems/KeybinddStatus.app` with bundle identifier
+`net.garaba.keybindd.ui`.
 
-Important behavior: matched shortcuts are consumed immediately. If app opening later fails asynchronously, the original key event is still swallowed.
+- Shows agent reachability, Accessibility, Input Monitoring, shortcut listener,
+  and configuration state.
+- Sends status and reload requests through the same agent XPC service.
+- Opens the preferences app with `keybindd://` URLs for user actions.
 
-### Config Pipeline
+### `KeybinddCore`
 
-| File | Role |
-|---|---|
-| `BindingConfigDocument.swift` | Decodes the TOML `bindings` document via `swift-toml` and encodes `[AppBinding]` back to TOML. |
-| `BindingConfigStore.swift` | `load` (parse + compile), `add` (compile, check duplicates, append), `remove` (by key or shortcut, with ambiguity detection). |
-| `BindingCompiler.swift` | Transforms `AppBinding` (human-readable strings) into `CompiledAppBinding` (`CGKeyCode` + `CGEventFlags` + resolved `AppIdentity`). Produces a `BindingSnapshot` — a dictionary keyed by `CompiledShortcut` for O(1) event matching. |
+SwiftPM library shared by all targets. It contains the configuration model,
+JSON defaults store, binding compiler, XPC protocol/codecs, status mapping,
+event engine, app-opening runtime, Dock menu integration, and Space-moving
+runtime.
 
-### Domain Model — `AppBinding.swift`
-
-- **`Shortcut`** — key name + modifier names (strings)
-- **`AppTarget`** — bundle ID + `AppOpenMode`
-- **`AppBinding`** — a `Shortcut` + `AppTarget`
-- **`AppOpenMode`** — `.launch`, `.newWindow`, or `.move`; a single parser accepts both CLI form (`new-window`) and config form (`new_window`)
-- Error enums: `BindingValidationError`, `BindingConfigError`, `BindingEditError`
-
-### App Opening Pipeline
-
-| File | Role |
-|---|---|
-| `AppRuntime.swift` | Protocols (`AppResolver`, `AppRuntime`) and types (`AppIdentity`, `OpenAppResult`, `RunningApplicationState`). Testability seam. |
-| `MacOSAppRuntime.swift` | macOS implementation. `InstalledAppResolver` uses `NSWorkspace` to find apps. `MacOSAppRuntime` handles three modes: **launch** (via `NSWorkspace.openApplication`), **new_window** (checks for existing windows via `CGWindowListCopyWindowInfo`; if on another space, triggers "New Window" via the Dock menu, waits for a window to appear on the current space, then activates), and **move** (activates a window already on the current space; otherwise moves the app's existing windows here via `SpaceMover` and activates; launches if not running or windowless). Dock-menu, window-move, window-appearance, and activation failures are reported as logged app-open failures rather than crashes. |
-| `DockMenuOpener.swift` | Accessibility-based "New Window" triggering. Finds the app in the Dock via the AX API, opens the context menu, locates the "New Window" item, and presses it. Includes retry logic for menu appearance timing. |
-| `SpaceMover.swift` | Moves other apps' windows to the active Mission Control space via private SkyLight functions. Picks one of three mechanisms at startup: a bridged window-management operation (macOS 15+/26, the no-SIP path, located by scanning SkyLight's Mach-O symbol table since the function has internal linkage), the `SLSSpaceSetCompatID` + `SLSSetWindowListWorkspace` compat-ID workaround (macOS 12.7+/13.6+/14.5+), or direct `SLSMoveWindowsToManagedSpace` (older). All symbols are resolved at runtime so a missing one degrades to a logged failure. The active space is read via `SLSManagedDisplayGetCurrentSpace` on the menu-bar display. |
-
-### AppOpener — `AppOpener.swift`
-
-An `actor` wrapping `AppRuntime` with deduplication. Tracks in-flight bundle IDs so rapid repeated presses for the same app don't stack.
-
-### KeyCode — `KeyCode.swift`
-
-Static lookup tables mapping human-readable names to hardware codes:
-
-- Keys: `"f5"`, `"space"`, `"a"` → `CGKeyCode`
-- Modifiers: `"cmd"`/`"command"`, `"shift"`, `"alt"`/`"opt"`/`"option"`, `"ctrl"`/`"control"` → `CGEventFlags`
-
-### Infrastructure
-
-| File | Role |
-|---|---|
-| `PidFile.swift` | Single-instance enforcement via `flock()`. Writes the PID to `~/.config/keybindd/keybindd.pid`. Handles stale PID cleanup. |
-| `Logging.swift` | Stderr logger with `debug`/`info`/`warning`/`error` levels. `debug` is gated behind `--verbose`. |
-| `AppPaths.swift` | Default paths: config (`~/.config/keybindd/config.toml`) and PID file (`~/.config/keybindd/keybindd.pid`). |
-
-## Key Press → App Activation
+## Configuration Data Flow
 
 ```
-CGEvent tap (keyDown)
-  → Daemon.handleKeyEvent()
-    → extract CGKeyCode + CGEventFlags
-    → BindingState.match(keyCode, modifiers)
-    → if hit: CompiledAppBinding
-      → AppOpener.open(binding)             [actor, deduplicates]
-        → AppRuntime.open(identity, mode)
-          → launch:      NSWorkspace.openApplication
-          → new_window:
-              window here?       → activate (or fail)
-              running elsewhere? → DockMenuOpener → wait for window → activate (or fail)
-              not running?       → launch
-          → move:
-              window here?         → activate (or fail)
-              windows elsewhere?   → SpaceMover → wait for window → activate (or fail)
-              not running/no win?  → launch
-    → swallow event (return nil from tap)
+Preferences draft
+  → validate shortcut, duplicate, mode, bundle-id shape
+  → save JSON data to UserDefaults suite net.garaba.keybindd.shared
+  → XPC reloadConfiguration()
+  → agent lenient compile
+      resolved apps become active bindings
+      missing bundle IDs become unresolvedBundleIDs
+      hard invalid config preserves previous snapshot
+  → @MainActor snapshot swap in KeyEventEngine
 ```
 
-## Concurrency / Threading
+The UI validates before save. The agent validates again when it reloads because
+the current machine's installed apps can change after the UI saves.
 
-The runtime model is intentionally simple:
+Unresolved bundle identifiers are degraded state, not corruption. The agent
+skips those bindings, reports them in `AgentStatus.unresolvedBundleIDs`, and
+keeps all resolvable bindings active.
 
-- `Daemon` is main-thread / main-run-loop owned.
-- The event tap source is installed on the main run loop, so binding lookup is not contended across threads.
-- `AppOpener` is an `actor`, which serializes app-open deduplication and completion bookkeeping.
-- `MacOSAppRuntime` performs system integration asynchronously; activation/launch operations hop to the appropriate main-thread AppKit APIs when required.
-- `PidFileStore` is the one explicitly lock-based component (`NSLock`), because PID-file acquisition/removal can be called from different contexts.
+## Key Event Hot Path
 
-This means the hot path (`keyDown` → binding lookup) stays synchronous and cheap, while slower app-launch work is pushed into async code.
+```
+CGEvent tap keyDown
+  → KeyEventEngine.handleKeyEvent()
+  → extract CGKeyCode + relevant CGEventFlags
+  → O(1) lookup in BindingSnapshot
+  → if no match: return event
+  → if match:
+      log match
+      Task { await AppOpener.open(binding) }
+      return nil to consume the event
+```
 
-## Operational Requirements / Caveats
+Matched shortcuts are consumed immediately. If launching, opening a new window,
+moving windows, or activation later fails, the original key event is still
+swallowed and the failure is logged.
 
-- **Accessibility permission is required** for the event tap and for Dock accessibility interactions.
-- `new_window` depends on macOS/Dock accessibility behavior and on the target app exposing a usable **New Window** menu item in its Dock menu.
-- `move` depends on private SkyLight window-server functions (no public API exists for moving another app's windows between spaces); if a future macOS removes them, moves fail as logged app-open failures.
-- Some apps may not support opening a new window from the Dock menu, may localize the item unexpectedly, may fail activation, or may show no window even after launch; these cases surface as logged failures rather than crashes.
-- Config validation/compilation is **machine-specific** because bundle IDs are resolved against apps installed on the current Mac.
-- `start` is a **foreground** process; lifecycle control (`stop`) happens from another shell via signals and the PID file.
+## App Opening
+
+`launch` performs a normal app launch or activation through `NSWorkspace`.
+
+`new-window` checks whether the app already has a window on the current Space.
+If not, and the app is running elsewhere, the runtime asks the Dock accessibility
+menu for **New Window**, waits for a new current-Space window, and activates the
+app. Failures are logged and are non-fatal.
+
+`move` checks for current-Space windows first. If windows exist on another
+Space, it moves them to the current Space and activates the app. Moving relies
+on private SkyLight functions resolved at runtime. On supported macOS 26+
+systems, keybindd uses the bridged window-management operation that does not
+require disabling SIP.
+
+## Concurrency Model
+
+- `AgentSupervisor` and `KeyEventEngine` are `@MainActor`.
+- The event tap source is installed on the main run loop, so snapshot lookup is
+  not contended.
+- XPC calls enter on Foundation-managed queues and hop to `@MainActor` before
+  touching supervisor or engine state.
+- `AppOpener` is an actor that deduplicates in-flight opens per bundle ID.
+- Storage wrappers that can be called from multiple contexts use `NSLock`.
+- Slow app-opening work is async; the key-event hot path stays synchronous.
 
 ## Failure Semantics
 
-- Startup fails fast on: PID-file conflicts, config creation failure, invalid/unresolvable initial config, or inability to install the event tap.
-- App-opening failures are non-fatal; they are logged by `AppOpener`. This includes Dock-menu failures, window-move failures, missing windows on the current space, and activation failures in `new_window` and `move` modes.
-- A matched binding consumes the triggering key even if the later open attempt fails.
+- Missing Accessibility or Input Monitoring permission prevents event tap
+  installation. The agent stays alive, polls trust state, and starts the engine
+  when both permissions are present.
+- Event tap creation failure is logged and surfaced through status.
+- Corrupt stored JSON, unsupported schema versions, or structurally invalid
+  configuration are reported as configuration problems.
+- A hard invalid reload preserves the previous active snapshot.
+- Fresh storage is not an error; the default configuration is empty.
+- Missing target apps produce `unresolvedBundleIDs`; resolvable bindings remain
+  active.
+- Dock menu, window creation, window move, and activation failures are logged
+  app-open failures, not process crashes.
+- The LaunchAgent plist uses `KeepAlive` with `SuccessfulExit = false`, so
+  launchd restarts crash exits but does not restart intentional successful
+  exits.
 
-## Dependencies
+## Storage Format
 
-- [swift-argument-parser](https://github.com/apple/swift-argument-parser) — CLI parsing
-- [swift-toml](https://github.com/mattt/swift-toml) — TOML config parsing and serialization
+Configuration is JSON encoded `KeybinddConfigurationV1` stored as `Data` in:
+
+- suite: `net.garaba.keybindd.shared`
+- key: `configuration.v1`
+
+Top-level fields:
+
+- `schemaVersion`
+- `bindings`
+- `verboseLogging`
+
+Each binding stores a stable UUID, a shortcut (`key`, `mods`), and a target
+(`bundleID`, `mode`). The codec distinguishes fresh storage from corrupt data:
+missing data returns `.fresh(.empty)`, while undecodable data, unsupported schema
+versions, and invalid data return `.corrupt(...)`.
+
+## XPC Boundary
+
+The agent listens on Mach service `net.garaba.keybindd.agent.xpc`. The exported
+protocol supports:
+
+- `status`
+- `reloadConfiguration`
+- `requestAccessibilityPrompt`
+- `requestInputMonitoringPrompt`
+
+For signed builds, both sides install
+`NSXPCConnection.setCodeSigningRequirement(_:)` requirements. The listener pins
+incoming clients to the agent's own team identifier and exact allowed client
+bundle identifiers: `net.garaba.keybindd` and `net.garaba.keybindd.ui`. The app
+and status item pin the remote service to the same team identifier and exact
+`net.garaba.keybindd.agent` bundle identifier. The team identifier is read at
+runtime with `SecCodeCopySelf`/`SecCodeCopySigningInformation`, so Apple
+Development and Developer ID builds work for whichever team signed the bundle.
+Unsigned or ad-hoc debug builds have no team identifier; the app logs a warning
+and skips the remote requirement, while the agent only skips the incoming-client
+requirement in debug builds. Release agents reject connections when no team
+identifier can be derived.
+
+## Packaging Layout
+
+XcodeGen creates three targets and the main app post-build script assembles this
+bundle layout:
+
+```text
+Keybindd.app/
+  Contents/
+    MacOS/Keybindd
+    Resources/KeybinddAgent.app
+    Library/
+      LaunchAgents/net.garaba.keybindd.agent.plist
+      LoginItems/KeybinddStatus.app
+```
+
+The LaunchAgent plist declares:
+
+- `Label`: `net.garaba.keybindd.agent`
+- `BundleProgram`: `Contents/Resources/KeybinddAgent.app/Contents/MacOS/KeybinddAgent`
+- `MachServices`: `net.garaba.keybindd.agent.xpc`
+- `LimitLoadToSessionType`: `Aqua`
+- `RunAtLoad`: `true`
+- `KeepAlive.SuccessfulExit`: `false`
+- `AssociatedBundleIdentifiers`: `net.garaba.keybindd`
+
+When a development team or release team ID is available, the build and release
+flows also add a generated `SpawnConstraint` with:
+
+- `team-identifier`: the signing team ID
+- `signing-identifier`: `net.garaba.keybindd.agent`
+
+## Signing And Notarization
+
+Distribution is Developer ID outside the Mac App Store. Hardened runtime is
+enabled, the app sandbox is disabled, and no target currently needs custom
+entitlements.
+
+`scripts/release.sh` uses a Release build plus manual re-sign flow because the
+bundle contains a nested login item and a LaunchAgent executable. Signing order
+is innermost first:
+
+1. `Contents/Library/LoginItems/KeybinddStatus.app`
+2. `Contents/Resources/KeybinddAgent.app`
+3. `Keybindd.app`
+
+Every signing command uses `--options runtime --timestamp --force`. Release mode
+requires a Developer ID Application identity, a team ID, and a notarytool
+keychain profile; it zips with `ditto --keepParent`, submits with
+`notarytool --wait`, staples, validates, and reruns verification. Local mode
+signs with the provided identity, skips notarization, and treats trust-policy
+verification failures as warnings.
 
 ## Testability
 
-The architecture is testable via protocol boundaries:
+The core package keeps most behavior behind testable boundaries:
 
-- **`AppResolver`** — stub to avoid real `NSWorkspace` lookups
-- **`AppRuntime`** / **`MacOSAppRuntimeSystem`** — fake to avoid launching real apps
-- **`PidFileStore`** — accepts injected `currentPID` and `processChecker` closures
-- **`BindingCompiler`** / **`BindingConfigDocument`** — pure functions, directly unit-testable
+- `ConfigurationStore`
+- `AppResolver`
+- `AppRuntime`
+- `MacOSAppRuntimeSystem`
+- `AgentClientProtocol`
+- pure codecs, validators, requirement builders, and status mappers
+
+Run core tests with:
+
+```bash
+make core-test
+```
+
+Run the full repository test suite with:
+
+```bash
+make test
+```

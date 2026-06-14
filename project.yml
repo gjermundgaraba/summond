@@ -1,0 +1,126 @@
+name: Keybindd
+options:
+  minimumXcodeGenVersion: 2.45.0
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_APP_SANDBOX: NO
+    CODE_SIGN_STYLE: Automatic
+packages:
+  KeybinddCore:
+    path: Core
+targets:
+  Keybindd:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - Resources/**
+          - Info.plist
+      - path: Resources/AppIcon.icns
+    dependencies:
+      - package: KeybinddCore
+        product: KeybinddCore
+      - target: KeybinddAgent
+        embed: false
+      - target: KeybinddStatus
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd
+        INFOPLIST_FILE: App/Info.plist
+    postBuildScripts:
+      - name: Embed Agent and Login Item
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/KeybinddAgent.app/Contents/MacOS/KeybinddAgent
+          - $(PROJECT_DIR)/App/Resources/net.garaba.keybindd.agent.plist
+          - $(PROJECT_DIR)/scripts/apply-launch-agent-spawn-constraint.sh
+          - $(BUILT_PRODUCTS_DIR)/KeybinddStatus.app/Contents/MacOS/KeybinddStatus
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/KeybinddAgent.app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/net.garaba.keybindd.agent.plist
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/KeybinddStatus.app
+        script: |
+          set -euo pipefail
+
+          app_contents="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH"
+          resources="$app_contents/Resources"
+          launch_agents="$app_contents/Library/LaunchAgents"
+          login_items="$app_contents/Library/LoginItems"
+
+          mkdir -p "$resources" "$launch_agents" "$login_items"
+
+          rm -rf "$resources/KeybinddAgent.app"
+          cp -R "$BUILT_PRODUCTS_DIR/KeybinddAgent.app" "$resources/KeybinddAgent.app"
+
+          agent_plist="$launch_agents/net.garaba.keybindd.agent.plist"
+          cp "$PROJECT_DIR/App/Resources/net.garaba.keybindd.agent.plist" "$agent_plist"
+          bash "$PROJECT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" \
+            "$agent_plist" \
+            "${DEVELOPMENT_TEAM:-}"
+
+          rm -rf "$login_items/KeybinddStatus.app"
+          cp -R "$BUILT_PRODUCTS_DIR/KeybinddStatus.app" "$login_items/KeybinddStatus.app"
+  KeybinddAgent:
+    type: application
+    platform: macOS
+    sources:
+      - path: Agent
+        excludes:
+          - Info.plist
+      - path: Resources/AppIcon.icns
+    dependencies:
+      - package: KeybinddCore
+        product: KeybinddCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.agent
+        INFOPLIST_FILE: Agent/Info.plist
+  KeybinddStatus:
+    type: application
+    platform: macOS
+    sources:
+      - path: Status
+        excludes:
+          - Info.plist
+      - path: Resources/AppIcon.icns
+    dependencies:
+      - package: KeybinddCore
+        product: KeybinddCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.ui
+        INFOPLIST_FILE: Status/Info.plist
+  KeybinddTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: AppTests
+    dependencies:
+      - target: Keybindd
+      - package: KeybinddCore
+        product: KeybinddCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Keybindd:
+    build:
+      targets:
+        Keybindd: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - KeybinddTests
+    profile:
+      config: Release
+    archive:
+      config: Release
