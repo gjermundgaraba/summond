@@ -1,7 +1,7 @@
 import CoreGraphics
 import Testing
 
-@testable import KeybinddCore
+@testable import SummondCore
 
 @Suite("KeyCode resolution")
 struct KeyCodeTests {

@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-public struct KeybinddConfigurationV1: Codable, Equatable, Sendable {
+public struct SummondConfigurationV1: Codable, Equatable, Sendable {
   public static let currentSchemaVersion = 1
 
   public var schemaVersion: Int
@@ -18,8 +18,8 @@ public struct KeybinddConfigurationV1: Codable, Equatable, Sendable {
     self.verboseLogging = verboseLogging
   }
 
-  public static var empty: KeybinddConfigurationV1 {
-    KeybinddConfigurationV1()
+  public static var empty: SummondConfigurationV1 {
+    SummondConfigurationV1()
   }
 }
 
@@ -36,11 +36,11 @@ public struct StoredBinding: Codable, Equatable, Sendable, Identifiable {
 }
 
 public enum ConfigurationLoadResult: Equatable, Sendable {
-  case fresh(KeybinddConfigurationV1)
-  case loaded(KeybinddConfigurationV1)
+  case fresh(SummondConfigurationV1)
+  case loaded(SummondConfigurationV1)
   case corrupt(ConfigurationCorruption)
 
-  public var configuration: KeybinddConfigurationV1? {
+  public var configuration: SummondConfigurationV1? {
     switch self {
     case .fresh(let configuration), .loaded(let configuration):
       configuration
@@ -87,11 +87,11 @@ extension ConfigurationValidationError: LocalizedError {
 
 public protocol ConfigurationStore: Sendable {
   func load() -> ConfigurationLoadResult
-  func save(_ configuration: KeybinddConfigurationV1) throws
+  func save(_ configuration: SummondConfigurationV1) throws
 }
 
 public final class UserDefaultsConfigurationStore: @unchecked Sendable, ConfigurationStore {
-  public static let defaultSuiteName = "net.garaba.keybindd.shared"
+  public static let defaultSuiteName = "net.garaba.summond.shared"
   public static let defaultKey = "configuration.v1"
 
   private let defaults: UserDefaults
@@ -101,7 +101,7 @@ public final class UserDefaultsConfigurationStore: @unchecked Sendable, Configur
   public convenience init?(
     suiteName: String = UserDefaultsConfigurationStore.defaultSuiteName,
     key: String = UserDefaultsConfigurationStore.defaultKey,
-    logger: Logger = KeybinddLoggers.config
+    logger: Logger = SummondLoggers.config
   ) {
     guard let defaults = UserDefaults(suiteName: suiteName) else {
       return nil
@@ -113,7 +113,7 @@ public final class UserDefaultsConfigurationStore: @unchecked Sendable, Configur
   public init(
     defaults: UserDefaults,
     key: String = UserDefaultsConfigurationStore.defaultKey,
-    logger: Logger = KeybinddLoggers.config
+    logger: Logger = SummondLoggers.config
   ) {
     self.defaults = defaults
     self.key = key
@@ -139,7 +139,7 @@ public final class UserDefaultsConfigurationStore: @unchecked Sendable, Configur
     return result
   }
 
-  public func save(_ configuration: KeybinddConfigurationV1) throws {
+  public func save(_ configuration: SummondConfigurationV1) throws {
     try ConfigurationValidator.validate(configuration)
     defaults.set(try ConfigurationCodec.encode(configuration), forKey: key)
     // Flush to cfprefsd synchronously so the agent process, prompted to reload
@@ -164,7 +164,7 @@ public final class InMemoryConfigurationStore: @unchecked Sendable, Configuratio
     return ConfigurationCodec.decode(data)
   }
 
-  public func save(_ configuration: KeybinddConfigurationV1) throws {
+  public func save(_ configuration: SummondConfigurationV1) throws {
     try ConfigurationValidator.validate(configuration)
     let encoded = try ConfigurationCodec.encode(configuration)
     lock.withLock {
@@ -183,32 +183,32 @@ public final class InMemoryConfigurationStore: @unchecked Sendable, Configuratio
   }
 }
 
-public func appBindings(from configuration: KeybinddConfigurationV1) -> [AppBinding] {
+public func appBindings(from configuration: SummondConfigurationV1) -> [AppBinding] {
   configuration.bindings.map { stored in
     AppBinding(shortcut: stored.shortcut, app: stored.target)
   }
 }
 
-public func validateConfiguration(_ configuration: KeybinddConfigurationV1) throws {
+public func validateConfiguration(_ configuration: SummondConfigurationV1) throws {
   try ConfigurationValidator.validate(configuration)
 }
 
 enum ConfigurationCodec {
-  static func encode(_ configuration: KeybinddConfigurationV1) throws -> Data {
+  static func encode(_ configuration: SummondConfigurationV1) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     return try encoder.encode(configuration)
   }
 
   static func decode(_ data: Data) -> ConfigurationLoadResult {
-    let configuration: KeybinddConfigurationV1
+    let configuration: SummondConfigurationV1
     do {
-      configuration = try JSONDecoder().decode(KeybinddConfigurationV1.self, from: data)
+      configuration = try JSONDecoder().decode(SummondConfigurationV1.self, from: data)
     } catch {
       return .corrupt(.undecodable(error.localizedDescription))
     }
 
-    guard configuration.schemaVersion == KeybinddConfigurationV1.currentSchemaVersion else {
+    guard configuration.schemaVersion == SummondConfigurationV1.currentSchemaVersion else {
       return .corrupt(.unsupportedSchemaVersion(configuration.schemaVersion))
     }
 
@@ -225,8 +225,8 @@ enum ConfigurationCodec {
 }
 
 enum ConfigurationValidator {
-  static func validate(_ configuration: KeybinddConfigurationV1) throws {
-    guard configuration.schemaVersion == KeybinddConfigurationV1.currentSchemaVersion else {
+  static func validate(_ configuration: SummondConfigurationV1) throws {
+    guard configuration.schemaVersion == SummondConfigurationV1.currentSchemaVersion else {
       throw ConfigurationCorruption.unsupportedSchemaVersion(configuration.schemaVersion)
     }
 

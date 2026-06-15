@@ -6,7 +6,7 @@ import OSLog
 struct DockMenuOpener: Sendable {
   private let logger: Logger
 
-  init(logger: Logger = KeybinddLoggers.opener) {
+  init(logger: Logger = SummondLoggers.opener) {
     self.logger = logger
   }
 

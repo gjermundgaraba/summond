@@ -83,7 +83,7 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   }
 
   private func compile(
-    _ configuration: KeybinddConfigurationV1,
+    _ configuration: SummondConfigurationV1,
     configState: AgentConfigurationState
   ) -> AgentConfigurationReloadResult {
     do {

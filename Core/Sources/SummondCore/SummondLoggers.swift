@@ -1,7 +1,7 @@
 import OSLog
 
-public enum KeybinddLoggers {
-  public static let subsystem = "net.garaba.keybindd"
+public enum SummondLoggers {
+  public static let subsystem = "net.garaba.summond"
 
   public static let engine = Logger(subsystem: subsystem, category: "engine")
   public static let opener = Logger(subsystem: subsystem, category: "opener")

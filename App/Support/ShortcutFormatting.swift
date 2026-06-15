@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import KeybinddCore
+import SummondCore
 
 enum ShortcutFormatter {
   /// macOS renders modifier glyphs in the order Control, Option, Shift, Command

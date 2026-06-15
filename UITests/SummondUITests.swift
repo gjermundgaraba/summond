@@ -1,8 +1,8 @@
 import XCTest
 
-/// End-to-end UI tests that drive the real Keybindd preferences app through
-/// `XCUIApplication`. The app is launched with `-keybinddUITests`, which routes
-/// `KeybinddApp.init()` to a Debug-only harness (`App/Support/UITestSupport.swift`)
+/// End-to-end UI tests that drive the real Summond preferences app through
+/// `XCUIApplication`. The app is launched with `-summondUITests`, which routes
+/// `SummondApp.init()` to a Debug-only harness (`App/Support/UITestSupport.swift`)
 /// that injects fakes for XPC, SMAppService, the app catalog, and the config
 /// store — so these tests exercise the real SwiftUI views, view models, and the
 /// configuration persistence path (including a real cross-launch `UserDefaults`
@@ -13,13 +13,13 @@ import XCTest
 /// Tart VM, so the harness hosts the real views in AppKit windows
 /// (`UITestWindowCoordinator`). Consequently the production *scene* layer is NOT
 /// exercised here — `WindowGroup`/`Window`/`Settings` presentation, the
-/// `KeybinddShortcutCommands` menu items (⌘N/⌘↩/⌦/⌘R), the `keybindd://` URL /
+/// `SummondShortcutCommands` menu items (⌘N/⌘↩/⌦/⌘R), the `summond://` URL /
 /// `onOpenURL` deep link, `defaultWindowPlacement`/`restorationBehavior`, and
 /// `scenePhase` reactivation remain manual-test-only.
 ///
 /// These tests are intended to run only inside the Tart VM (`make test-tart`),
 /// which runs `make test ui-test`; they are not part of the host `make test`.
-final class KeybinddUITests: XCTestCase {
+final class SummondUITests: XCTestCase {
   /// Cold-boot the app + WindowServer handshake can be slow on a fresh VM clone.
   private let launchTimeout: TimeInterval = 60
   private let uiTimeout: TimeInterval = 10
@@ -243,7 +243,7 @@ final class KeybinddUITests: XCTestCase {
   /// survived — proving genuine cross-launch persistence (not just in-session
   /// state).
   func testBindingPersistsAcrossRelaunch() {
-    let suite = "net.garaba.keybindd.uitest.\(UUID().uuidString)"
+    let suite = "net.garaba.summond.uitest.\(UUID().uuidString)"
     addTeardownBlock {
       UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
@@ -278,23 +278,23 @@ final class KeybinddUITests: XCTestCase {
     suite: String? = nil
   ) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["-keybinddUITests", "-hasCompletedOnboarding", onboarded ? "1" : "0"]
+    app.launchArguments = ["-summondUITests", "-hasCompletedOnboarding", onboarded ? "1" : "0"]
     var environment: [String: String] = [
-      "KEYBINDD_UITEST_ACCESSIBILITY": accessibility ? "1" : "0",
-      "KEYBINDD_UITEST_INPUT_MONITORING": inputMonitoring ? "1" : "0",
-      "KEYBINDD_UITEST_SERVICE": serviceEnabled ? "1" : "0",
+      "SUMMOND_UITEST_ACCESSIBILITY": accessibility ? "1" : "0",
+      "SUMMOND_UITEST_INPUT_MONITORING": inputMonitoring ? "1" : "0",
+      "SUMMOND_UITEST_SERVICE": serviceEnabled ? "1" : "0",
     ]
     if let seed {
-      environment["KEYBINDD_UITEST_SEED"] = seed
+      environment["SUMMOND_UITEST_SEED"] = seed
     }
     if reloadFails {
-      environment["KEYBINDD_UITEST_RELOAD"] = "fail"
+      environment["SUMMOND_UITEST_RELOAD"] = "fail"
     }
     if let draftShortcut {
-      environment["KEYBINDD_UITEST_DRAFT_SHORTCUT"] = draftShortcut
+      environment["SUMMOND_UITEST_DRAFT_SHORTCUT"] = draftShortcut
     }
     if let suite {
-      environment["KEYBINDD_UITEST_SUITE"] = suite
+      environment["SUMMOND_UITEST_SUITE"] = suite
     }
     app.launchEnvironment = environment
     return app

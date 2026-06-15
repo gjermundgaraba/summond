@@ -1,4 +1,4 @@
-name: Keybindd
+name: Summond
 options:
   minimumXcodeGenVersion: 2.45.0
   deploymentTarget:
@@ -11,10 +11,10 @@ settings:
     ENABLE_APP_SANDBOX: NO
     CODE_SIGN_STYLE: Automatic
 packages:
-  KeybinddCore:
+  SummondCore:
     path: Core
 targets:
-  Keybindd:
+  Summond:
     type: application
     platform: macOS
     sources:
@@ -24,27 +24,27 @@ targets:
           - Info.plist
       - path: Resources/AppIcon.icns
     dependencies:
-      - package: KeybinddCore
-        product: KeybinddCore
-      - target: KeybinddAgent
+      - package: SummondCore
+        product: SummondCore
+      - target: SummondAgent
         embed: false
-      - target: KeybinddStatus
+      - target: SummondStatus
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond
         INFOPLIST_FILE: App/Info.plist
     postBuildScripts:
       - name: Embed Agent and Login Item
         inputFiles:
-          - $(BUILT_PRODUCTS_DIR)/KeybinddAgent.app/Contents/MacOS/KeybinddAgent
-          - $(PROJECT_DIR)/App/Resources/net.garaba.keybindd.agent.plist
+          - $(BUILT_PRODUCTS_DIR)/SummondAgent.app/Contents/MacOS/SummondAgent
+          - $(PROJECT_DIR)/App/Resources/net.garaba.summond.agent.plist
           - $(PROJECT_DIR)/scripts/apply-launch-agent-spawn-constraint.sh
-          - $(BUILT_PRODUCTS_DIR)/KeybinddStatus.app/Contents/MacOS/KeybinddStatus
+          - $(BUILT_PRODUCTS_DIR)/SummondStatus.app/Contents/MacOS/SummondStatus
         outputFiles:
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/KeybinddAgent.app
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/net.garaba.keybindd.agent.plist
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/KeybinddStatus.app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/SummondAgent.app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/net.garaba.summond.agent.plist
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/SummondStatus.app
         script: |
           set -euo pipefail
 
@@ -55,18 +55,18 @@ targets:
 
           mkdir -p "$resources" "$launch_agents" "$login_items"
 
-          rm -rf "$resources/KeybinddAgent.app"
-          cp -R "$BUILT_PRODUCTS_DIR/KeybinddAgent.app" "$resources/KeybinddAgent.app"
+          rm -rf "$resources/SummondAgent.app"
+          cp -R "$BUILT_PRODUCTS_DIR/SummondAgent.app" "$resources/SummondAgent.app"
 
-          agent_plist="$launch_agents/net.garaba.keybindd.agent.plist"
-          cp "$PROJECT_DIR/App/Resources/net.garaba.keybindd.agent.plist" "$agent_plist"
+          agent_plist="$launch_agents/net.garaba.summond.agent.plist"
+          cp "$PROJECT_DIR/App/Resources/net.garaba.summond.agent.plist" "$agent_plist"
           bash "$PROJECT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" \
             "$agent_plist" \
             "${DEVELOPMENT_TEAM:-}"
 
-          rm -rf "$login_items/KeybinddStatus.app"
-          cp -R "$BUILT_PRODUCTS_DIR/KeybinddStatus.app" "$login_items/KeybinddStatus.app"
-  KeybinddAgent:
+          rm -rf "$login_items/SummondStatus.app"
+          cp -R "$BUILT_PRODUCTS_DIR/SummondStatus.app" "$login_items/SummondStatus.app"
+  SummondAgent:
     type: application
     platform: macOS
     sources:
@@ -75,13 +75,13 @@ targets:
           - Info.plist
       - path: Resources/AppIcon.icns
     dependencies:
-      - package: KeybinddCore
-        product: KeybinddCore
+      - package: SummondCore
+        product: SummondCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.agent
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.agent
         INFOPLIST_FILE: Agent/Info.plist
-  KeybinddStatus:
+  SummondStatus:
     type: application
     platform: macOS
     sources:
@@ -90,58 +90,58 @@ targets:
           - Info.plist
       - path: Resources/AppIcon.icns
     dependencies:
-      - package: KeybinddCore
-        product: KeybinddCore
+      - package: SummondCore
+        product: SummondCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.ui
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.ui
         INFOPLIST_FILE: Status/Info.plist
-  KeybinddTests:
+  SummondTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: AppTests
     dependencies:
-      - target: Keybindd
-      - package: KeybinddCore
-        product: KeybinddCore
+      - target: Summond
+      - package: SummondCore
+        product: SummondCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.tests
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.tests
         GENERATE_INFOPLIST_FILE: YES
-  KeybinddUITests:
+  SummondUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
       - path: UITests
     dependencies:
-      - target: Keybindd
+      - target: Summond
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.uitests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
-  Keybindd:
+  Summond:
     build:
       targets:
-        Keybindd: all
+        Summond: all
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - KeybinddTests
+        - SummondTests
     profile:
       config: Release
     archive:
       config: Release
-  KeybinddUITests:
+  SummondUITests:
     build:
       targets:
-        Keybindd: all
-        KeybinddUITests: [test]
+        Summond: all
+        SummondUITests: [test]
     test:
       config: Debug
       targets:
-        - name: KeybinddUITests
+        - name: SummondUITests
           parallelizable: false

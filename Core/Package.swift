@@ -3,21 +3,21 @@
 import PackageDescription
 
 let package = Package(
-  name: "keybindd",
+  name: "summond",
   platforms: [.macOS("26.0")],
   products: [
-    .library(name: "KeybinddCore", targets: ["KeybinddCore"])
+    .library(name: "SummondCore", targets: ["SummondCore"])
   ],
   targets: [
     .target(
-      name: "KeybinddCore",
-      path: "Sources/KeybinddCore",
+      name: "SummondCore",
+      path: "Sources/SummondCore",
       swiftSettings: [.swiftLanguageMode(.v6)]
     ),
     .testTarget(
-      name: "KeybinddTests",
-      dependencies: ["KeybinddCore"],
-      path: "Tests/KeybinddTests",
+      name: "SummondTests",
+      dependencies: ["SummondCore"],
+      path: "Tests/SummondTests",
       swiftSettings: [.swiftLanguageMode(.v6)]
     ),
   ]

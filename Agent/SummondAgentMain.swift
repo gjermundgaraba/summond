@@ -1,16 +1,16 @@
 import AppKit
 import Foundation
-import KeybinddCore
+import SummondCore
 import OSLog
 
 @main
-struct KeybinddAgentMain {
+struct SummondAgentMain {
   @MainActor
   static func main() {
     NSApplication.shared.setActivationPolicy(.accessory)
 
     guard let store = UserDefaultsConfigurationStore() else {
-      KeybinddLoggers.agent.fault("failed to create configuration store")
+      SummondLoggers.agent.fault("failed to create configuration store")
       exit(1)
     }
 
@@ -21,7 +21,7 @@ struct KeybinddAgentMain {
     )
     let listener = AgentXPCListener(supervisor: supervisor)
     guard listener.start() else {
-      KeybinddLoggers.agent.fault("failed to start XPC listener")
+      SummondLoggers.agent.fault("failed to start XPC listener")
       exit(1)
     }
 

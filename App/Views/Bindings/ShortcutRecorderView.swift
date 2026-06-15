@@ -1,6 +1,6 @@
 import AppKit
 import CoreGraphics
-import KeybinddCore
+import SummondCore
 import SwiftUI
 
 struct ShortcutRecorderView: View {

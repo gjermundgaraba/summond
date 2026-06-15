@@ -10,7 +10,7 @@ public actor AppOpener {
 
   public init(
     runtime: any AppRuntime,
-    logger: Logger = KeybinddLoggers.opener,
+    logger: Logger = SummondLoggers.opener,
     verboseLogging: Bool = false
   ) {
     self.runtime = runtime

@@ -63,7 +63,7 @@ public enum AgentStatusCodec {
   }
 }
 
-@objc public protocol KeybinddAgentXPC {
+@objc public protocol SummondAgentXPC {
   func status(reply: @escaping (Data) -> Void)
   func reloadConfiguration(reply: @escaping (Data) -> Void)
   func requestAccessibilityPrompt()

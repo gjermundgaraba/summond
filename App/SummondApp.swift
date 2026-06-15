@@ -1,10 +1,10 @@
 import AppKit
-import KeybinddCore
+import SummondCore
 import OSLog
 import SwiftUI
 
 @main
-struct KeybinddApp: App {
+struct SummondApp: App {
   @State private var serviceManager: ServiceManager
   @State private var preferencesModel: PreferencesViewModel
 
@@ -29,7 +29,7 @@ struct KeybinddApp: App {
       store = userDefaultsStore
       storageBanner = nil
     } else {
-      KeybinddLoggers.config.fault(
+      SummondLoggers.config.fault(
         "Settings storage unavailable; falling back to in-memory configuration")
       store = InMemoryConfigurationStore()
       storageBanner = PreferencesBanner(
@@ -59,7 +59,7 @@ struct KeybinddApp: App {
     }
     .handlesExternalEvents(matching: ["preferences"])
     .commands {
-      KeybinddShortcutCommands()
+      SummondShortcutCommands()
     }
 
     Window("Binding", id: "binding-editor") {
@@ -85,7 +85,7 @@ struct KeybinddApp: App {
   }
 
   private func handleURL(_ url: URL) {
-    guard url.scheme == "keybindd" else {
+    guard url.scheme == "summond" else {
       return
     }
 
@@ -108,7 +108,7 @@ struct KeybinddApp: App {
   }
 }
 
-private struct KeybinddShortcutCommands: Commands {
+private struct SummondShortcutCommands: Commands {
   @FocusedValue(\.preferencesCommands) private var commands
 
   var body: some Commands {

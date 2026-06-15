@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import KeybinddCore
+@testable import SummondCore
 
 @Suite("App opener")
 struct AppOpenerTests {

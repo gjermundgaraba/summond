@@ -1,8 +1,8 @@
 import Foundation
-import KeybinddCore
+import SummondCore
 import Testing
 
-@testable import Keybindd
+@testable import Summond
 
 @MainActor
 @Suite("Preferences view model")
@@ -116,7 +116,7 @@ struct PreferencesViewModelTests {
     )
     let model = PreferencesViewModel(
       store: MockConfigurationStore(
-        loadResult: .loaded(KeybinddConfigurationV1(bindings: [existing]))
+        loadResult: .loaded(SummondConfigurationV1(bindings: [existing]))
       ),
       agentClient: MockAgentClient(),
       appCatalog: MockAppCatalog()
@@ -188,7 +188,7 @@ struct PreferencesViewModelTests {
 private final class MockConfigurationStore: @unchecked Sendable, ConfigurationStore {
   var loadResult: ConfigurationLoadResult
   var saveError: Error?
-  var savedConfigurations: [KeybinddConfigurationV1] = []
+  var savedConfigurations: [SummondConfigurationV1] = []
 
   init(loadResult: ConfigurationLoadResult, saveError: Error? = nil) {
     self.loadResult = loadResult
@@ -199,7 +199,7 @@ private final class MockConfigurationStore: @unchecked Sendable, ConfigurationSt
     loadResult
   }
 
-  func save(_ configuration: KeybinddConfigurationV1) throws {
+  func save(_ configuration: SummondConfigurationV1) throws {
     if let saveError {
       throw saveError
     }

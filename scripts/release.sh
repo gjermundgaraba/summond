@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release.sh [--local] [options]
 
-Build, sign, verify, package, and notarize Keybindd.app.
+Build, sign, verify, package, and notarize Summond.app.
 
 Modes:
   default release mode
@@ -38,10 +38,10 @@ USAGE
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA="$ROOT_DIR/.build/release-dd"
-PROJECT_PATH="$ROOT_DIR/Keybindd.xcodeproj"
-SCHEME="Keybindd"
+PROJECT_PATH="$ROOT_DIR/Summond.xcodeproj"
+SCHEME="Summond"
 CONFIGURATION="Release"
-APP_NAME="Keybindd.app"
+APP_NAME="Summond.app"
 
 LOCAL_MODE=0
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
@@ -244,7 +244,7 @@ stage_app() {
 
   mkdir -p "$OUTPUT_DIR"
   APP_PATH="$OUTPUT_DIR/$APP_NAME"
-  ZIP_PATH="$OUTPUT_DIR/Keybindd.zip"
+  ZIP_PATH="$OUTPUT_DIR/Summond.zip"
   rm -rf "$APP_PATH" "$ZIP_PATH"
   ditto "$built_app" "$APP_PATH"
 }
@@ -253,7 +253,7 @@ apply_launch_agent_spawn_constraint() {
   [[ -n "$TEAM_ID" ]] || return 0
 
   log "Applying LaunchAgent spawn constraint"
-  local agent_plist="$APP_PATH/Contents/Library/LaunchAgents/net.garaba.keybindd.agent.plist"
+  local agent_plist="$APP_PATH/Contents/Library/LaunchAgents/net.garaba.summond.agent.plist"
   bash "$ROOT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" "$agent_plist" "$TEAM_ID"
 }
 
@@ -272,8 +272,8 @@ sign_artifacts() {
   log "Signing nested code innermost first"
   require_signing_identity
 
-  local status_app="$APP_PATH/Contents/Library/LoginItems/KeybinddStatus.app"
-  local agent_app="$APP_PATH/Contents/Resources/KeybinddAgent.app"
+  local status_app="$APP_PATH/Contents/Library/LoginItems/SummondStatus.app"
+  local agent_app="$APP_PATH/Contents/Resources/SummondAgent.app"
 
   [[ -d "$status_app" ]] || die "nested status app not found at $status_app"
   [[ -d "$agent_app" ]] || die "nested agent app not found at $agent_app"
@@ -325,14 +325,14 @@ verify_signed_identity() {
 
 verify_release_identity() {
   log "Verifying signing identities"
-  verify_signed_identity "$APP_PATH" "net.garaba.keybindd" "main app"
+  verify_signed_identity "$APP_PATH" "net.garaba.summond" "main app"
   verify_signed_identity \
-    "$APP_PATH/Contents/Resources/KeybinddAgent.app" \
-    "net.garaba.keybindd.agent" \
+    "$APP_PATH/Contents/Resources/SummondAgent.app" \
+    "net.garaba.summond.agent" \
     "agent app"
   verify_signed_identity \
-    "$APP_PATH/Contents/Library/LoginItems/KeybinddStatus.app" \
-    "net.garaba.keybindd.ui" \
+    "$APP_PATH/Contents/Library/LoginItems/SummondStatus.app" \
+    "net.garaba.summond.ui" \
     "status item"
 }
 

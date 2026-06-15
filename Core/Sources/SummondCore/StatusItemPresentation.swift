@@ -25,7 +25,7 @@ public enum StatusItemPresentationMapper {
   public static func presentation(agentStatus: AgentStatus?) -> StatusItemPresentation {
     guard let agentStatus else {
       return StatusItemPresentation(
-        statusLine: "Keybindd isn't responding",
+        statusLine: "Summond isn't responding",
         showsWarningBadge: true,
         canReload: false
       )

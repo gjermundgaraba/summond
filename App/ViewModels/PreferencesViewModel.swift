@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import KeybinddCore
+import SummondCore
 import Observation
 
 @MainActor
@@ -16,7 +16,7 @@ final class PreferencesViewModel {
   private let agentClient: any AgentClientProtocol
   private let appCatalog: any AppDisplayResolving
 
-  var draft: KeybinddConfigurationV1
+  var draft: SummondConfigurationV1
   var loadState: LoadState = .fresh
   var banner: PreferencesBanner?
   var isSaving = false
@@ -111,7 +111,7 @@ final class PreferencesViewModel {
   func recordShortcut(keyCode: CGKeyCode, flags: CGEventFlags) -> String? {
     let relevantFlags = flags.intersection(KeyCode.relevantModifiersMask)
     guard let keyName = KeyCode.name(for: keyCode) else {
-      return "That key is not supported by Keybindd yet."
+      return "That key is not supported by Summond yet."
     }
 
     guard var editorDraft else {
@@ -240,7 +240,7 @@ final class PreferencesViewModel {
     await persist(.empty)
   }
 
-  private func persist(_ next: KeybinddConfigurationV1) async {
+  private func persist(_ next: SummondConfigurationV1) async {
     isSaving = true
     defer { isSaving = false }
 

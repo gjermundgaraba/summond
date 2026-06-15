@@ -1,5 +1,5 @@
 import Foundation
-import KeybinddCore
+import SummondCore
 
 struct AppDisplayInfo: Identifiable, Equatable {
   var id: String { bundleID }

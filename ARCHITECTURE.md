@@ -1,59 +1,60 @@
 # Architecture
 
-keybindd is a macOS preferences app, LaunchAgent, status item, and shared core
-library for global app shortcuts.
+Summond is a macOS preferences app, LaunchAgent, status item, and shared core
+library that summons app windows — opening, focusing, or moving them — from
+global shortcuts.
 
 ## Component Diagram
 
 ```
-┌──────────────────────────┐        keybindd:// URLs
-│ KeybinddStatus.app       │ ─────────────────────────┐
+┌──────────────────────────┐        summond:// URLs
+│ SummondStatus.app       │ ─────────────────────────┐
 │ menu bar login item      │                          │
 └────────────┬─────────────┘                          │
              │ XPC status/reload                      │
              ▼                                        ▼
 ┌──────────────────────────┐   SMAppService   ┌──────────────────────────┐
-│ KeybinddAgent            │ ◀──────────────▶ │ Keybindd.app             │
+│ SummondAgent            │ ◀──────────────▶ │ Summond.app             │
 │ LaunchAgent + listener   │                  │ preferences + service UI │
 └────────────┬─────────────┘                  └────────────┬─────────────┘
              │                                             │
              └──────────────┬──────────────────────────────┘
                             ▼
                 ┌──────────────────────────┐
-                │ KeybinddCore             │
+                │ SummondCore             │
                 │ config, compiler, XPC,   │
                 │ engine, app opening      │
                 └────────────┬─────────────┘
                              ▼
                 UserDefaults suite
-                net.garaba.keybindd.shared
+                net.garaba.summond.shared
 ```
 
 ## Components
 
-### `Keybindd.app`
+### `Summond.app`
 
-SwiftUI preferences app with bundle identifier `net.garaba.keybindd`.
+SwiftUI preferences app with bundle identifier `net.garaba.summond`.
 
 - Edits stored bindings and verbose logging.
 - Registers/unregisters the LaunchAgent with
-  `SMAppService.agent(plistName: "net.garaba.keybindd.agent.plist")`.
+  `SMAppService.agent(plistName: "net.garaba.summond.agent.plist")`.
 - Registers/unregisters the menu bar login item with
-  `SMAppService.loginItem(identifier: "net.garaba.keybindd.ui")`.
-- Handles `keybindd://` URLs from the status item.
+  `SMAppService.loginItem(identifier: "net.garaba.summond.ui")`.
+- Handles `summond://` URLs from the status item.
 - Talks to the agent over Mach XPC service
-  `net.garaba.keybindd.agent.xpc`.
+  `net.garaba.summond.agent.xpc`.
 
-### `KeybinddAgent`
+### `SummondAgent`
 
 LaunchAgent embedded as a faceless helper app bundle at
-`Contents/Resources/KeybinddAgent.app` (bundle identifier
-`net.garaba.keybindd.agent`, `LSUIElement`). It is a bundle rather than a bare
+`Contents/Resources/SummondAgent.app` (bundle identifier
+`net.garaba.summond.agent`, `LSUIElement`). It is a bundle rather than a bare
 executable so that the Accessibility permission it requests displays as
-"Keybindd" with the app icon — TCC shows the requesting bundle's display name
+"Summond" with the app icon — TCC shows the requesting bundle's display name
 and icon, and a bare tool would show the raw executable name and a generic
 icon. The LaunchAgent plist's `BundleProgram` points at
-`Contents/Resources/KeybinddAgent.app/Contents/MacOS/KeybinddAgent`.
+`Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent`.
 
 - Runs in the user's Aqua session.
 - Loads configuration from the shared defaults suite.
@@ -64,18 +65,18 @@ icon. The LaunchAgent plist's `BundleProgram` points at
 - Uses `KeepAlive` crash-only semantics: launchd restarts it after an
   unsuccessful exit, but it is not a polling supervisor.
 
-### `KeybinddStatus.app`
+### `SummondStatus.app`
 
 Menu bar login item embedded at
-`Contents/Library/LoginItems/KeybinddStatus.app` with bundle identifier
-`net.garaba.keybindd.ui`.
+`Contents/Library/LoginItems/SummondStatus.app` with bundle identifier
+`net.garaba.summond.ui`.
 
 - Shows agent reachability, Accessibility, Input Monitoring, shortcut listener,
   and configuration state.
 - Sends status and reload requests through the same agent XPC service.
-- Opens the preferences app with `keybindd://` URLs for user actions.
+- Opens the preferences app with `summond://` URLs for user actions.
 
-### `KeybinddCore`
+### `SummondCore`
 
 SwiftPM library shared by all targets. It contains the configuration model,
 JSON defaults store, binding compiler, XPC protocol/codecs, status mapping,
@@ -87,7 +88,7 @@ runtime.
 ```
 Preferences draft
   → validate shortcut, duplicate, mode, bundle-id shape
-  → save JSON data to UserDefaults suite net.garaba.keybindd.shared
+  → save JSON data to UserDefaults suite net.garaba.summond.shared
   → XPC reloadConfiguration()
   → agent lenient compile
       resolved apps become active bindings
@@ -133,7 +134,7 @@ app. Failures are logged and are non-fatal.
 `move` checks for current-Space windows first. If windows exist on another
 Space, it moves them to the current Space and activates the app. Moving relies
 on private SkyLight functions resolved at runtime. On supported macOS 26+
-systems, keybindd uses the bridged window-management operation that does not
+systems, Summond uses the bridged window-management operation that does not
 require disabling SIP.
 
 ## Concurrency Model
@@ -167,9 +168,9 @@ require disabling SIP.
 
 ## Storage Format
 
-Configuration is JSON encoded `KeybinddConfigurationV1` stored as `Data` in:
+Configuration is JSON encoded `SummondConfigurationV1` stored as `Data` in:
 
-- suite: `net.garaba.keybindd.shared`
+- suite: `net.garaba.summond.shared`
 - key: `configuration.v1`
 
 Top-level fields:
@@ -185,7 +186,7 @@ versions, and invalid data return `.corrupt(...)`.
 
 ## XPC Boundary
 
-The agent listens on Mach service `net.garaba.keybindd.agent.xpc`. The exported
+The agent listens on Mach service `net.garaba.summond.agent.xpc`. The exported
 protocol supports:
 
 - `status`
@@ -196,9 +197,9 @@ protocol supports:
 For signed builds, both sides install
 `NSXPCConnection.setCodeSigningRequirement(_:)` requirements. The listener pins
 incoming clients to the agent's own team identifier and exact allowed client
-bundle identifiers: `net.garaba.keybindd` and `net.garaba.keybindd.ui`. The app
+bundle identifiers: `net.garaba.summond` and `net.garaba.summond.ui`. The app
 and status item pin the remote service to the same team identifier and exact
-`net.garaba.keybindd.agent` bundle identifier. The team identifier is read at
+`net.garaba.summond.agent` bundle identifier. The team identifier is read at
 runtime with `SecCodeCopySelf`/`SecCodeCopySigningInformation`, so Apple
 Development and Developer ID builds work for whichever team signed the bundle.
 Unsigned or ad-hoc debug builds have no team identifier; the app logs a warning
@@ -212,30 +213,30 @@ XcodeGen creates three targets and the main app post-build script assembles this
 bundle layout:
 
 ```text
-Keybindd.app/
+Summond.app/
   Contents/
-    MacOS/Keybindd
-    Resources/KeybinddAgent.app
+    MacOS/Summond
+    Resources/SummondAgent.app
     Library/
-      LaunchAgents/net.garaba.keybindd.agent.plist
-      LoginItems/KeybinddStatus.app
+      LaunchAgents/net.garaba.summond.agent.plist
+      LoginItems/SummondStatus.app
 ```
 
 The LaunchAgent plist declares:
 
-- `Label`: `net.garaba.keybindd.agent`
-- `BundleProgram`: `Contents/Resources/KeybinddAgent.app/Contents/MacOS/KeybinddAgent`
-- `MachServices`: `net.garaba.keybindd.agent.xpc`
+- `Label`: `net.garaba.summond.agent`
+- `BundleProgram`: `Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent`
+- `MachServices`: `net.garaba.summond.agent.xpc`
 - `LimitLoadToSessionType`: `Aqua`
 - `RunAtLoad`: `true`
 - `KeepAlive.SuccessfulExit`: `false`
-- `AssociatedBundleIdentifiers`: `net.garaba.keybindd`
+- `AssociatedBundleIdentifiers`: `net.garaba.summond`
 
 When a development team or release team ID is available, the build and release
 flows also add a generated `SpawnConstraint` with:
 
 - `team-identifier`: the signing team ID
-- `signing-identifier`: `net.garaba.keybindd.agent`
+- `signing-identifier`: `net.garaba.summond.agent`
 
 ## Signing And Notarization
 
@@ -247,9 +248,9 @@ entitlements.
 bundle contains a nested login item and a LaunchAgent executable. Signing order
 is innermost first:
 
-1. `Contents/Library/LoginItems/KeybinddStatus.app`
-2. `Contents/Resources/KeybinddAgent.app`
-3. `Keybindd.app`
+1. `Contents/Library/LoginItems/SummondStatus.app`
+2. `Contents/Resources/SummondAgent.app`
+3. `Summond.app`
 
 Every signing command uses `--options runtime --timestamp --force`. Release mode
 requires a Developer ID Application identity, a team ID, and a notarytool

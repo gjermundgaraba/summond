@@ -48,13 +48,13 @@ public struct KeyEventEngineStatus: Equatable, Sendable {
   public init(
     snapshot: BindingSnapshot = .empty,
     runtime: any AppRuntime,
-    logger: Logger = KeybinddLoggers.engine,
+    logger: Logger = SummondLoggers.engine,
     verboseLogging: Bool = false
   ) {
     self.bindingSnapshot = snapshot
     self.appOpener = AppOpener(
       runtime: runtime,
-      logger: KeybinddLoggers.opener,
+      logger: SummondLoggers.opener,
       verboseLogging: verboseLogging
     )
     self.logger = logger

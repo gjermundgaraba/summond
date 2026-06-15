@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import KeybinddCore
+import SummondCore
 
 protocol AppDisplayResolving {
   @MainActor func displayInfo(for bundleID: String) -> AppDisplayInfo

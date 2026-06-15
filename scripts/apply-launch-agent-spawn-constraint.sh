@@ -12,7 +12,7 @@ fi
 
 agent_plist="$1"
 team_id="$2"
-signing_identifier="${3:-net.garaba.keybindd.agent}"
+signing_identifier="${3:-net.garaba.summond.agent}"
 
 [[ -n "$team_id" ]] || exit 0
 [[ -f "$agent_plist" ]] || {

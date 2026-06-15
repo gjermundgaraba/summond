@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import KeybinddCore
+@testable import SummondCore
 
 @Suite("Configuration store")
 struct ConfigurationStoreTests {
@@ -17,9 +17,9 @@ struct ConfigurationStoreTests {
   @Test("Shared defaults suite is not any product bundle identifier")
   func sharedDefaultsSuiteDoesNotMatchBundleIdentifiers() {
     let bundleIdentifiers = [
-      KeybinddBundleIdentifiers.app,
-      KeybinddBundleIdentifiers.agent,
-      KeybinddBundleIdentifiers.statusItem,
+      SummondBundleIdentifiers.app,
+      SummondBundleIdentifiers.agent,
+      SummondBundleIdentifiers.statusItem,
     ]
 
     for bundleIdentifier in bundleIdentifiers {
@@ -29,7 +29,7 @@ struct ConfigurationStoreTests {
 
   @Test("User defaults store round trips across instances in the same suite")
   func userDefaultsStoreRoundTripsAcrossInstances() throws {
-    let suiteName = "net.garaba.keybindd.tests.\(UUID().uuidString)"
+    let suiteName = "net.garaba.summond.tests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
     defer {
@@ -39,7 +39,7 @@ struct ConfigurationStoreTests {
     let writer = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
     let reader = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
     let bindingID = try #require(UUID(uuidString: "A30A2D05-2481-4C28-8F61-30475F64C391"))
-    let configuration = KeybinddConfigurationV1(
+    let configuration = SummondConfigurationV1(
       bindings: [
         try stored(
           id: bindingID,
@@ -60,7 +60,7 @@ struct ConfigurationStoreTests {
   @Test("JSON round trip preserves binding UUIDs")
   func jsonRoundTripPreservesIDs() throws {
     let id = UUID()
-    let configuration = KeybinddConfigurationV1(
+    let configuration = SummondConfigurationV1(
       bindings: [
         StoredBinding(
           id: id,
@@ -95,7 +95,7 @@ struct ConfigurationStoreTests {
   @Test("Wrong schema version loads as corrupt")
   func wrongSchemaVersionLoadsCorrupt() throws {
     let data = try JSONEncoder().encode(
-      KeybinddConfigurationV1(schemaVersion: 2, bindings: [], verboseLogging: false)
+      SummondConfigurationV1(schemaVersion: 2, bindings: [], verboseLogging: false)
     )
     let store = InMemoryConfigurationStore(data: data)
 
@@ -104,7 +104,7 @@ struct ConfigurationStoreTests {
 
   @Test("Save rejects invalid configurations")
   func saveRejectsInvalidConfigurations() throws {
-    let cases: [(KeybinddConfigurationV1, ConfigurationValidationError)] = [
+    let cases: [(SummondConfigurationV1, ConfigurationValidationError)] = [
       (
         configuration(
           shortcut: Shortcut(key: "nonexistent", mods: ["cmd"]),
@@ -127,7 +127,7 @@ struct ConfigurationStoreTests {
         .invalidBinding(index: 1, error: .emptyBundleID)
       ),
       (
-        KeybinddConfigurationV1(
+        SummondConfigurationV1(
           bindings: [
             try stored(key: "return", mods: ["cmd"], bundleID: "com.apple.Safari"),
             try stored(key: "enter", mods: ["cmd"], bundleID: "com.apple.Terminal"),
@@ -146,7 +146,7 @@ struct ConfigurationStoreTests {
 
   @Test("Derives app bindings without resolving installed apps")
   func derivesAppBindings() throws {
-    let configuration = KeybinddConfigurationV1(
+    let configuration = SummondConfigurationV1(
       bindings: [
         try stored(
           id: UUID(),
@@ -172,7 +172,7 @@ struct ConfigurationStoreTests {
   @Test("Modifier-less shortcut validates and round trips through JSON")
   func modifierLessShortcutValidatesAndRoundTrips() throws {
     let id = UUID()
-    let configuration = KeybinddConfigurationV1(
+    let configuration = SummondConfigurationV1(
       bindings: [
         try stored(
           id: id,
@@ -268,8 +268,8 @@ struct BindingCompilerTests {
 private func configuration(
   shortcut: Shortcut,
   target: AppTarget
-) -> KeybinddConfigurationV1 {
-  KeybinddConfigurationV1(bindings: [
+) -> SummondConfigurationV1 {
+  SummondConfigurationV1(bindings: [
     StoredBinding(shortcut: shortcut, target: target)
   ])
 }

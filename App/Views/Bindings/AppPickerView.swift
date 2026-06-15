@@ -1,5 +1,5 @@
 import AppKit
-import KeybinddCore
+import SummondCore
 import SwiftUI
 import UniformTypeIdentifiers
 

@@ -1,10 +1,10 @@
 import AppKit
-import KeybinddCore
+import SummondCore
 import Observation
 import SwiftUI
 
 @main
-struct KeybinddStatusApp: App {
+struct SummondStatusApp: App {
   @State private var model = StatusMenuModel()
 
   var body: some Scene {
@@ -31,7 +31,7 @@ private struct StatusMenuLabel: View {
           .offset(x: 5, y: -4)
       }
     }
-    .accessibilityLabel("Keybindd")
+    .accessibilityLabel("Summond")
   }
 }
 
@@ -44,7 +44,7 @@ private struct StatusMenuContent: View {
 
     Divider()
 
-    Button("Open Keybindd") {
+    Button("Open Summond") {
       model.openPreferences()
     }
 
@@ -101,7 +101,7 @@ private final class StatusMenuModel {
   }
 
   func openPreferences() {
-    guard let url = URL(string: "keybindd://preferences") else {
+    guard let url = URL(string: "summond://preferences") else {
       launchMainApplication()
       return
     }
@@ -133,13 +133,13 @@ private final class StatusMenuModel {
     var candidate = Bundle.main.bundleURL.deletingLastPathComponent()
     for _ in 0..<7 {
       if candidate.pathExtension == "app",
-        Bundle(url: candidate)?.bundleIdentifier == "net.garaba.keybindd"
+        Bundle(url: candidate)?.bundleIdentifier == "net.garaba.summond"
       {
         return candidate
       }
       candidate = candidate.deletingLastPathComponent()
     }
 
-    return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.garaba.keybindd")
+    return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.garaba.summond")
   }
 }

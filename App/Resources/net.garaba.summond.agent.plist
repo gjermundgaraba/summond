@@ -4,16 +4,16 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>net.garaba.keybindd.agent</string>
+  <string>net.garaba.summond.agent</string>
   <key>BundleProgram</key>
-  <string>Contents/Resources/KeybinddAgent.app/Contents/MacOS/KeybinddAgent</string>
+  <string>Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent</string>
   <key>RunAtLoad</key>
   <true/>
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
   <key>MachServices</key>
   <dict>
-    <key>net.garaba.keybindd.agent.xpc</key>
+    <key>net.garaba.summond.agent.xpc</key>
     <true/>
   </dict>
   <key>KeepAlive</key>
@@ -22,6 +22,6 @@
     <false/>
   </dict>
   <key>AssociatedBundleIdentifiers</key>
-  <string>net.garaba.keybindd</string>
+  <string>net.garaba.summond</string>
 </dict>
 </plist>

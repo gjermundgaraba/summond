@@ -3,14 +3,14 @@
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
 BASE_VM ?= codex-macos-tahoe-xcodegen-base
-PROJECT := Keybindd.xcodeproj
-SCHEME := Keybindd
+PROJECT := Summond.xcodeproj
+SCHEME := Summond
 DESTINATION ?= platform=macOS
 
 help:
 	@printf '%s\n' \
 		'Targets:' \
-		'  make project        Generate Keybindd.xcodeproj with XcodeGen' \
+		'  make project        Generate Summond.xcodeproj with XcodeGen' \
 		'  make build          Build the Debug macOS app (alias: dev-build)' \
 		'  make dev-build      Build the Debug macOS app' \
 		'  make core-build     Build the Core Swift package' \
@@ -51,7 +51,7 @@ app-test: project
 # run on a host Mac unless explicitly forced; test-tart sets it inside the VM.
 ui-test: project
 	@[ "$${ALLOW_HOST_UITESTS:-}" = "1" ] || { echo 'make ui-test drives a real GUI; run via make test-tart, or set ALLOW_HOST_UITESTS=1 to force on this host.' >&2; exit 1; }
-	$(XCODEBUILD) test -project $(PROJECT) -scheme KeybinddUITests -destination '$(DESTINATION)' -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180
+	$(XCODEBUILD) test -project $(PROJECT) -scheme SummondUITests -destination '$(DESTINATION)' -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180
 
 test-tart:
 	scripts/tart-test.sh "$(BASE_VM)"

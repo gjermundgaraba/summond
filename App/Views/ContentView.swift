@@ -1,5 +1,5 @@
 import AppKit
-import KeybinddCore
+import SummondCore
 import SwiftUI
 
 struct ContentView: View {
@@ -245,7 +245,7 @@ private struct SetupNeededBanner: View {
         Text("Setup needed")
           .font(.callout.weight(.semibold))
         Text(
-          "Keybindd needs its background service, and KeybinddAgent needs Accessibility and Input Monitoring, to run shortcuts."
+          "Summond needs its background service, and SummondAgent needs Accessibility and Input Monitoring, to run shortcuts."
         )
         .font(.callout)
         .foregroundStyle(.secondary)

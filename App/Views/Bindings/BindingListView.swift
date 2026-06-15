@@ -1,4 +1,4 @@
-import KeybinddCore
+import SummondCore
 import SwiftUI
 
 struct BindingListView: View {

@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-@testable import KeybinddCore
+@testable import SummondCore
 
 final class TestAppRuntime: @unchecked Sendable, AppRuntime {
   private let lock = NSLock()

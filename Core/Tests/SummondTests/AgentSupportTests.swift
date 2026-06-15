@@ -3,7 +3,7 @@ import Foundation
 import Security
 import Testing
 
-@testable import KeybinddCore
+@testable import SummondCore
 
 @Suite("Agent status")
 struct AgentStatusTests {
@@ -220,7 +220,7 @@ struct StatusItemPresentationTests {
   func unreachableAgentIsNotResponding() {
     let presentation = StatusItemPresentationMapper.presentation(agentStatus: nil)
 
-    #expect(presentation.statusLine == "Keybindd isn't responding")
+    #expect(presentation.statusLine == "Summond isn't responding")
     #expect(presentation.showsWarningBadge)
     #expect(!presentation.canReload)
   }
@@ -267,7 +267,7 @@ struct AgentConfigurationReloadTests {
   @Test("Reload skips unresolved bundle IDs and installs resolvable bindings")
   @MainActor
   func reloadSkipsUnresolvedBundleIDs() async throws {
-    let configuration = KeybinddConfigurationV1(
+    let configuration = SummondConfigurationV1(
       bindings: [
         try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari"),
         try storedBinding(key: "f6", mods: ["cmd"], bundleID: "com.example.missing"),
@@ -304,7 +304,7 @@ struct AgentConfigurationReloadTests {
   @Test("Hard invalid reload preserves the previous engine snapshot")
   @MainActor
   func hardInvalidReloadPreservesPreviousSnapshot() async throws {
-    let initialConfiguration = KeybinddConfigurationV1(
+    let initialConfiguration = SummondConfigurationV1(
       bindings: [
         try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")
       ]
@@ -319,7 +319,7 @@ struct AgentConfigurationReloadTests {
     let firstSnapshot = try #require(firstReload.snapshotToInstall)
 
     store.configuration =
-      KeybinddConfigurationV1(
+      SummondConfigurationV1(
         bindings: [
           StoredBinding(
             shortcut: Shortcut(key: "not-a-key", mods: ["cmd"]),
@@ -350,7 +350,7 @@ struct XPCClientRequirementTests {
     let requirement = XPCClientRequirement.clientRequirementString(teamIdentifier: "TEAMID1234")
     #expect(
       requirement == """
-        anchor apple generic and certificate leaf[subject.OU] = "TEAMID1234" and (info[CFBundleIdentifier] = "net.garaba.keybindd" or info[CFBundleIdentifier] = "net.garaba.keybindd.ui")
+        anchor apple generic and certificate leaf[subject.OU] = "TEAMID1234" and (info[CFBundleIdentifier] = "net.garaba.summond" or info[CFBundleIdentifier] = "net.garaba.summond.ui")
         """
     )
     // Regression guard: a quoted "...*" is a literal asterisk in the requirement
@@ -362,11 +362,11 @@ struct XPCClientRequirementTests {
   func escapesValues() {
     let requirement = XPCClientRequirement.clientRequirementString(
       teamIdentifier: #"TEAM"ID"#,
-      bundleIdentifiers: [#"net.garaba\keybindd"#]
+      bundleIdentifiers: [#"net.garaba\summond"#]
     )
     #expect(
       requirement == #"""
-        anchor apple generic and certificate leaf[subject.OU] = "TEAM\"ID" and (info[CFBundleIdentifier] = "net.garaba\\keybindd")
+        anchor apple generic and certificate leaf[subject.OU] = "TEAM\"ID" and (info[CFBundleIdentifier] = "net.garaba\\summond")
         """#
     )
   }
@@ -391,10 +391,10 @@ struct XPCClientRequirementTests {
     #expect(
       XPCClientRequirement.requirementString(
         teamIdentifier: "TEAMID1234",
-        bundleIdentifier: KeybinddBundleIdentifiers.agent
+        bundleIdentifier: SummondBundleIdentifiers.agent
       )
         == """
-        anchor apple generic and certificate leaf[subject.OU] = "TEAMID1234" and info[CFBundleIdentifier] = "net.garaba.keybindd.agent"
+        anchor apple generic and certificate leaf[subject.OU] = "TEAMID1234" and info[CFBundleIdentifier] = "net.garaba.summond.agent"
         """
     )
   }
@@ -404,7 +404,7 @@ struct XPCClientRequirementTests {
     let requirementString =
       XPCClientRequirement.requirementString(
         teamIdentifier: "ABCDE12345",
-        bundleIdentifier: KeybinddBundleIdentifiers.agent
+        bundleIdentifier: SummondBundleIdentifiers.agent
       )
 
     var requirement: SecRequirement?
@@ -477,9 +477,9 @@ private enum TestXPCBridgeError: Error, Equatable {
 
 private final class MutableLoadedConfigurationStore: @unchecked Sendable, ConfigurationStore {
   private let lock = NSLock()
-  private var storedConfiguration: KeybinddConfigurationV1
+  private var storedConfiguration: SummondConfigurationV1
 
-  var configuration: KeybinddConfigurationV1 {
+  var configuration: SummondConfigurationV1 {
     get {
       lock.withLock { storedConfiguration }
     }
@@ -490,7 +490,7 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
     }
   }
 
-  init(configuration: KeybinddConfigurationV1) {
+  init(configuration: SummondConfigurationV1) {
     self.storedConfiguration = configuration
   }
 
@@ -498,7 +498,7 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
     .loaded(configuration)
   }
 
-  func save(_ configuration: KeybinddConfigurationV1) throws {
+  func save(_ configuration: SummondConfigurationV1) throws {
     try validateConfiguration(configuration)
     self.configuration = configuration
   }

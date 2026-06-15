@@ -1,4 +1,4 @@
-import KeybinddCore
+import SummondCore
 import SwiftUI
 
 struct OnboardingView: View {
@@ -52,7 +52,7 @@ struct OnboardingView: View {
   private var welcomeStep: some View {
     VStack(alignment: .leading, spacing: 18) {
       stepIcon("keyboard.badge.eye")
-      Text("Welcome to keybindd")
+      Text("Welcome to Summond")
         .font(.title.weight(.semibold))
       Text(
         "A small background agent turns global keyboard shortcuts into app actions. macOS needs two approvals before it can listen for those shortcuts."
@@ -82,7 +82,7 @@ struct OnboardingView: View {
           Label("The background service is enabled.", systemImage: "checkmark.circle.fill")
             .foregroundStyle(.green)
         } else {
-          Text("The background service is enabled, but Keybindd can't reach its agent.")
+          Text("The background service is enabled, but Summond can't reach its agent.")
             .foregroundStyle(.secondary)
           if let error = serviceManager.lastError {
             Text(error)
@@ -97,7 +97,7 @@ struct OnboardingView: View {
           .disabled(serviceManager.isServiceBusy)
         }
       case .requiresApproval:
-        Text("Approve Keybindd in Login Items so macOS can start the background agent.")
+        Text("Approve Summond in Login Items so macOS can start the background agent.")
           .foregroundStyle(.secondary)
         Button("Open Login Items") {
           serviceManager.openLoginItemsSettings()
@@ -110,7 +110,7 @@ struct OnboardingView: View {
             .foregroundStyle(.red)
             .textSelection(.enabled)
         } else {
-          Text("Enable the background service so macOS can run Keybindd's shortcut agent.")
+          Text("Enable the background service so macOS can run Summond's shortcut agent.")
             .foregroundStyle(.secondary)
         }
 
@@ -135,7 +135,7 @@ struct OnboardingView: View {
       Text("Accessibility")
         .font(.title2.weight(.semibold))
       Text(
-        "Global key interception runs in the background agent. Enable KeybinddAgent in Privacy & Security, Accessibility."
+        "Global key interception runs in the background agent. Enable SummondAgent in Privacy & Security, Accessibility."
       )
       .foregroundStyle(.secondary)
 
@@ -172,7 +172,7 @@ struct OnboardingView: View {
       Text("Input Monitoring")
         .font(.title2.weight(.semibold))
       Text(
-        "macOS also needs Input Monitoring permission for KeybinddAgent before it can receive global shortcut key presses."
+        "macOS also needs Input Monitoring permission for SummondAgent before it can receive global shortcut key presses."
       )
       .foregroundStyle(.secondary)
 
@@ -205,7 +205,7 @@ struct OnboardingView: View {
         .foregroundStyle(.green)
       Text("You're all set")
         .font(.title.weight(.semibold))
-      Text("Keybindd is ready to run your shortcuts.")
+      Text("Summond is ready to run your shortcuts.")
         .foregroundStyle(.secondary)
       Spacer()
       HStack {

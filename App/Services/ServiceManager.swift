@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import KeybinddCore
+import SummondCore
 import Observation
 @preconcurrency import ServiceManagement
 
@@ -93,10 +93,10 @@ final class ServiceManager {
 
   init(
     agentService: any LoginItemServiceManaging = LoginItemService(
-      agentPlistName: "net.garaba.keybindd.agent.plist"
+      agentPlistName: "net.garaba.summond.agent.plist"
     ),
     statusItemService: any LoginItemServiceManaging = LoginItemService(
-      loginItemIdentifier: KeybinddBundleIdentifiers.statusItem
+      loginItemIdentifier: SummondBundleIdentifiers.statusItem
     ),
     agentClient: any AgentClientProtocol = AgentClient()
   ) {
@@ -294,9 +294,9 @@ final class ServiceManager {
       if UITestHarness.isActive { return }
     #endif
     let statusItemURL = Bundle.main.bundleURL
-      .appendingPathComponent("Contents/Library/LoginItems/KeybinddStatus.app")
+      .appendingPathComponent("Contents/Library/LoginItems/SummondStatus.app")
     guard FileManager.default.fileExists(atPath: statusItemURL.path) else {
-      lastStatusItemError = "KeybinddStatus.app was not found in this app bundle."
+      lastStatusItemError = "SummondStatus.app was not found in this app bundle."
       return
     }
 
@@ -316,7 +316,7 @@ final class ServiceManager {
       if UITestHarness.isActive { return }
     #endif
     let applications = NSRunningApplication.runningApplications(
-      withBundleIdentifier: KeybinddBundleIdentifiers.statusItem
+      withBundleIdentifier: SummondBundleIdentifiers.statusItem
     )
     for application in applications {
       application.terminate()

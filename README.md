@@ -1,30 +1,31 @@
-# keybindd
+# Summond
 
-keybindd is a macOS app and background agent for global app shortcuts. The
-preferences app edits shortcuts, the LaunchAgent intercepts key events, and an
-optional menu bar item shows agent health.
+Summond is a macOS app and background agent that summons app windows from a
+global shortcut — it opens, focuses, or moves a target app's windows onto your
+current Space. The preferences app edits shortcuts, the LaunchAgent intercepts
+key events, and an optional menu bar item shows agent health.
 
 ## Requirements
 
 - macOS 26.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45.4+
 - [Tart](https://tart.run/) for `make test-tart`
-- Accessibility permission for the `Keybindd` entry that represents the
-  bundled `KeybinddAgent` helper
-- Input Monitoring permission for the `Keybindd` entry that represents the
-  bundled `KeybinddAgent` helper
+- Accessibility permission for the `Summond` entry that represents the
+  bundled `SummondAgent` helper
+- Input Monitoring permission for the `Summond` entry that represents the
+  bundled `SummondAgent` helper
 - Login Items approval for the bundled LaunchAgent when macOS asks for it
 
 ## Install
 
-1. Drag `Keybindd.app` to `/Applications`.
-2. Open `Keybindd.app`.
+1. Drag `Summond.app` to `/Applications`.
+2. Open `Summond.app`.
 3. Click **Enable Service**.
 4. If the service shows **Requires Approval**, open System Settings > General >
-   Login Items & Extensions and approve Keybindd.
-5. Grant Accessibility permission to the `Keybindd` helper entry in System
+   Login Items & Extensions and approve Summond.
+5. Grant Accessibility permission to the `Summond` helper entry in System
    Settings > Privacy & Security > Accessibility.
-6. Grant Input Monitoring permission to the `Keybindd` helper entry in System
+6. Grant Input Monitoring permission to the `Summond` helper entry in System
    Settings > Privacy & Security > Input Monitoring.
 
 The app installs its service from inside the bundle with `SMAppService`. The
@@ -32,7 +33,7 @@ agent runs only in your Aqua login session.
 
 ## Configure Shortcuts
 
-Use the bindings editor in `Keybindd.app` to add, edit, or delete shortcuts.
+Use the bindings editor in `Summond.app` to add, edit, or delete shortcuts.
 You can pick an installed app, choose a `.app` bundle manually, or paste a
 bundle identifier. The shortcut recorder accepts supported keys with optional
 modifiers. Modifier-less shortcuts are allowed; the app warns before saving
@@ -55,7 +56,7 @@ Representative supported keys include letters, numbers, function keys
 `launch` performs a normal app launch or activation.
 
 `new-window` prefers a window on the current Space. If the app is already
-running elsewhere, keybindd asks the Dock for the app's **New Window** menu item,
+running elsewhere, Summond asks the Dock for the app's **New Window** menu item,
 waits for a window on the current Space, and then activates the app. If Dock
 menu access, window creation, or activation fails, the shortcut is still
 consumed and the failure is logged.
@@ -70,13 +71,13 @@ logged as a non-fatal failure.
 ## Menu Bar Item
 
 Enable the menu bar item from the preferences app. It is installed as the
-bundled login item `KeybinddStatus.app` and shows agent reachability,
+bundled login item `SummondStatus.app` and shows agent reachability,
 Accessibility, Input Monitoring, shortcut listener, and configuration state. Its
 menu can open preferences and reload the agent.
 
 ## Troubleshooting
 
-If the service shows **Requires Approval**, approve Keybindd in System Settings >
+If the service shows **Requires Approval**, approve Summond in System Settings >
 General > Login Items & Extensions.
 
 If shortcuts stop working after rebuilding or re-signing the app, macOS may have
@@ -84,14 +85,14 @@ revoked Accessibility trust for the old signature. Reset it and grant permission
 again:
 
 ```bash
-tccutil reset Accessibility net.garaba.keybindd.agent
-tccutil reset ListenEvent net.garaba.keybindd.agent
+tccutil reset Accessibility net.garaba.summond.agent
+tccutil reset ListenEvent net.garaba.summond.agent
 ```
 
 Stream logs from the app, agent, and status item:
 
 ```bash
-log stream --predicate 'subsystem == "net.garaba.keybindd"'
+log stream --predicate 'subsystem == "net.garaba.summond"'
 ```
 
 Useful service checks:
@@ -137,7 +138,7 @@ make test-tart
 
 `make test-tart` ensures a reusable Tart base VM named
 `codex-macos-tahoe-xcodegen-base` exists, clones it to a disposable VM, mounts
-this checkout at `/Volumes/My Shared Files/keybindd`, copies it to a guest-local
+this checkout at `/Volumes/My Shared Files/summond`, copies it to a guest-local
 temp directory, then runs `make test ui-test` there. The XCUITest UI tests
 (`make ui-test`) drive a real GUI app, so they run only inside the Tart VM and
 are intentionally excluded from host `make test`. The disposable VM is stopped
@@ -151,7 +152,7 @@ harness injects fakes for XPC/SMAppService/catalog/store). SwiftUI scene windows
 do not render under XCUITest in the Tart VM, so the harness hosts the real views
 in AppKit windows; the production *scene* layer is therefore not covered by
 these tests and remains manual-test-only — `WindowGroup`/`Window`/`Settings`
-presentation, the menu commands (⌘N/⌘↩/⌦/⌘R), the `keybindd://` deep link,
+presentation, the menu commands (⌘N/⌘↩/⌦/⌘R), the `summond://` deep link,
 window placement/restoration, and `scenePhase` reactivation. `make ui-test`
 refuses to run on a host Mac unless `ALLOW_HOST_UITESTS=1` is set (it drives a
 real GUI); `make test-tart` sets it inside the VM.
@@ -182,7 +183,7 @@ Create Developer ID artifacts and submit them for notarization:
 
 ```bash
 TEAM_ID=TEAMID \
-NOTARY_PROFILE=keybindd-notary \
+NOTARY_PROFILE=summond-notary \
 SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 make release
 ```
@@ -192,6 +193,6 @@ storage format, and release signing flow.
 
 ## v2 Breaking Changes
 
-keybindd v2 is an app plus LaunchAgent, not the old foreground CLI/TOML daemon.
+Summond v2 is an app plus LaunchAgent, not the old foreground CLI/TOML daemon.
 Configuration now lives as JSON data in the shared defaults suite
-`net.garaba.keybindd.shared` and is edited through `Keybindd.app`.
+`net.garaba.summond.shared` and is edited through `Summond.app`.

@@ -47,7 +47,7 @@ protocol MacOSAppRuntimeSystem: Sendable {
 public struct MacOSAppRuntime: AppRuntime {
   private let system: any MacOSAppRuntimeSystem
 
-  public init(logger: Logger = KeybinddLoggers.opener, verboseLogging: Bool = false) {
+  public init(logger: Logger = SummondLoggers.opener, verboseLogging: Bool = false) {
     self.system = LiveMacOSAppRuntimeSystem(logger: logger, verboseLogging: verboseLogging)
   }
 
@@ -193,9 +193,9 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
   private static let fallbackPollAttemptsWhenUnsupported = 60
   private static let movedWindowPollAttempts = 20
 
-  init(logger: Logger = KeybinddLoggers.opener, verboseLogging: Bool = false) {
+  init(logger: Logger = SummondLoggers.opener, verboseLogging: Bool = false) {
     self.dockMenuOpener = DockMenuOpener(logger: logger)
-    self.spaceMover = SpaceMover(logger: KeybinddLoggers.spaces, verboseLogging: verboseLogging)
+    self.spaceMover = SpaceMover(logger: SummondLoggers.spaces, verboseLogging: verboseLogging)
     self.logger = logger
     self.verboseLogging = verboseLogging
   }

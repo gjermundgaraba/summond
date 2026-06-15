@@ -1,6 +1,6 @@
 @preconcurrency import ApplicationServices
 import Foundation
-import KeybinddCore
+import SummondCore
 import OSLog
 
 @MainActor
@@ -14,7 +14,7 @@ final class AgentSupervisor {
     store: any ConfigurationStore,
     appResolver: any AppResolver,
     engine: KeyEventEngine,
-    logger: Logger = KeybinddLoggers.agent
+    logger: Logger = SummondLoggers.agent
   ) {
     self.engine = engine
     self.reloader = AgentConfigurationReloader(store: store, appResolver: appResolver)

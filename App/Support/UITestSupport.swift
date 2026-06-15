@@ -1,7 +1,7 @@
 #if DEBUG
   import AppKit
   import Foundation
-  import KeybinddCore
+  import SummondCore
   import Observation
   import SwiftUI
 
@@ -63,7 +63,7 @@
       let window = NSWindow(contentViewController: controller)
       window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
       window.setContentSize(NSSize(width: 900, height: 640))
-      window.title = "Keybindd"
+      window.title = "Summond"
       window.center()
       window.makeKeyAndOrderFront(nil)
       mainWindow = window
@@ -148,7 +148,7 @@
   ///
   /// The entire harness is compiled `#if DEBUG`, so it is physically absent from
   /// Release/archive builds. It additionally activates only when the app is
-  /// launched with the `-keybinddUITests` argument, which `XCUIApplication` sets
+  /// launched with the `-summondUITests` argument, which `XCUIApplication` sets
   /// before `launch()`. Normal Debug launches keep the real dependencies. This
   /// lets UI tests run without registering real `SMAppService` login items,
   /// without hitting real XPC, without touching the shared defaults suite, and
@@ -156,7 +156,7 @@
   enum UITestHarness {
     /// True when the process was launched by the UI-test runner.
     static var isActive: Bool {
-      ProcessInfo.processInfo.arguments.contains("-keybinddUITests")
+      ProcessInfo.processInfo.arguments.contains("-summondUITests")
     }
 
     /// The dependencies built for the running UI test, shared with the AppKit
@@ -164,13 +164,13 @@
     @MainActor static var sharedDependencies: (ServiceManager, PreferencesViewModel)?
 
     /// A shortcut to pre-fill into a newly-added binding draft, parsed from
-    /// `KEYBINDD_UITEST_DRAFT_SHORTCUT` (e.g. "cmd+f"). Driving the real `NSView`
+    /// `SUMMOND_UITEST_DRAFT_SHORTCUT` (e.g. "cmd+f"). Driving the real `NSView`
     /// recorder via synthesized keys is inherently flaky under XCUITest in the
     /// headless VM; tests whose subject is NOT shortcut recording use this to set
     /// the shortcut deterministically. The recorder itself is covered by a
     /// dedicated test that types a real key.
     static var prefilledDraftShortcut: ShortcutDraft? {
-      guard let raw = env("KEYBINDD_UITEST_DRAFT_SHORTCUT"), !raw.isEmpty else {
+      guard let raw = env("SUMMOND_UITEST_DRAFT_SHORTCUT"), !raw.isEmpty else {
         return nil
       }
       var parts = raw.split(separator: "+").map(String.init)
@@ -181,17 +181,17 @@
     }
 
     /// Builds the app's two root dependencies with fakes wired in, mirroring the
-    /// production wiring in `KeybinddApp.init()` (including the agent-status
+    /// production wiring in `SummondApp.init()` (including the agent-status
     /// reload callback).
     @MainActor
     static func makeDependencies() -> (ServiceManager, PreferencesViewModel) {
       let agentClient = UITestAgentClient(
-        accessibilityGranted: flag("KEYBINDD_UITEST_ACCESSIBILITY", default: true),
-        inputMonitoringGranted: flag("KEYBINDD_UITEST_INPUT_MONITORING", default: true),
-        reloadFails: env("KEYBINDD_UITEST_RELOAD") == "fail"
+        accessibilityGranted: flag("SUMMOND_UITEST_ACCESSIBILITY", default: true),
+        inputMonitoringGranted: flag("SUMMOND_UITEST_INPUT_MONITORING", default: true),
+        reloadFails: env("SUMMOND_UITEST_RELOAD") == "fail"
       )
 
-      let serviceEnabled = flag("KEYBINDD_UITEST_SERVICE", default: true)
+      let serviceEnabled = flag("SUMMOND_UITEST_SERVICE", default: true)
       let serviceManager = ServiceManager(
         agentService: UITestLoginItemService(status: serviceEnabled ? .enabled : .notRegistered),
         statusItemService: UITestLoginItemService(status: .notRegistered),
@@ -218,7 +218,7 @@
       // (UserDefaultsConfigurationStore + cfprefsd round-trip) so a relaunch test
       // can prove genuine cross-launch persistence without polluting the real
       // shared suite. The VM is disposable, so the throwaway suite is harmless.
-      if let suite = env("KEYBINDD_UITEST_SUITE"),
+      if let suite = env("SUMMOND_UITEST_SUITE"),
         let store = UserDefaultsConfigurationStore(suiteName: suite)
       {
         return store
@@ -227,11 +227,11 @@
     }
 
     private static func makeInMemoryStore() -> InMemoryConfigurationStore {
-      switch env("KEYBINDD_UITEST_SEED") {
+      switch env("SUMMOND_UITEST_SEED") {
       case "corrupt":
         // Undecodable bytes drive ConfigurationStore.load() to .corrupt, which
         // surfaces the recoverable-error banner + reset flow.
-        return InMemoryConfigurationStore(data: Data("not-valid-keybindd-json".utf8))
+        return InMemoryConfigurationStore(data: Data("not-valid-summond-json".utf8))
       case "one":
         return seededStore(bindings: [binding("com.apple.Safari", key: "f", mode: .launch)])
       case "two":
@@ -246,7 +246,7 @@
 
     private static func seededStore(bindings: [StoredBinding]) -> InMemoryConfigurationStore {
       let store = InMemoryConfigurationStore()
-      try? store.save(KeybinddConfigurationV1(bindings: bindings))
+      try? store.save(SummondConfigurationV1(bindings: bindings))
       return store
     }
 

@@ -1,4 +1,4 @@
-# keybindd
+# Summond
 
 macOS app plus LaunchAgent that intercepts global key events and opens, focuses,
 or moves application windows based on shortcuts configured in the preferences

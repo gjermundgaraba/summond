@@ -4,15 +4,15 @@ public enum XPCClientRequirement {
   /// Bundle identifiers allowed to connect to the agent's XPC service: the
   /// preferences app and the menu bar status item.
   public static let allowedClientBundleIdentifiers = [
-    KeybinddBundleIdentifiers.app,
-    KeybinddBundleIdentifiers.statusItem,
+    SummondBundleIdentifiers.app,
+    SummondBundleIdentifiers.statusItem,
   ]
 
   /// Requirement the agent's listener applies to incoming clients.
   ///
   /// Each allowed client is pinned by exact bundle identifier. A `*` inside a
   /// quoted string in the code-signing requirement language is a *literal*
-  /// asterisk, not a wildcard — `info[CFBundleIdentifier] = "net.garaba.keybindd*"`
+  /// asterisk, not a wildcard — `info[CFBundleIdentifier] = "net.garaba.summond*"`
   /// never matches anything, so do not build prefix requirements that way.
   public static func clientRequirementString(
     teamIdentifier: String,

@@ -1,8 +1,8 @@
 import Foundation
-import KeybinddCore
+import SummondCore
 import Testing
 
-@testable import Keybindd
+@testable import Summond
 
 @MainActor
 @Suite("Service manager")

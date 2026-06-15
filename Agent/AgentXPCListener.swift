@@ -1,15 +1,15 @@
 import Foundation
-import KeybinddCore
+import SummondCore
 import OSLog
 
 final class AgentXPCListener: NSObject, NSXPCListenerDelegate {
-  private static let machServiceName = "net.garaba.keybindd.agent.xpc"
+  private static let machServiceName = "net.garaba.summond.agent.xpc"
 
   private let listener: NSXPCListener
   private let exportedObject: AgentXPCService
   private let logger: Logger
 
-  init(supervisor: AgentSupervisor, logger: Logger = KeybinddLoggers.xpc) {
+  init(supervisor: AgentSupervisor, logger: Logger = SummondLoggers.xpc) {
     self.listener = NSXPCListener(machServiceName: Self.machServiceName)
     self.exportedObject = AgentXPCService(supervisor: supervisor)
     self.logger = logger
@@ -41,14 +41,14 @@ final class AgentXPCListener: NSObject, NSXPCListenerDelegate {
       #endif
     }
 
-    connection.exportedInterface = NSXPCInterface(with: KeybinddAgentXPC.self)
+    connection.exportedInterface = NSXPCInterface(with: SummondAgentXPC.self)
     connection.exportedObject = exportedObject
     connection.resume()
     return true
   }
 }
 
-final class AgentXPCService: NSObject, KeybinddAgentXPC, @unchecked Sendable {
+final class AgentXPCService: NSObject, SummondAgentXPC, @unchecked Sendable {
   private let supervisor: AgentSupervisor
 
   init(supervisor: AgentSupervisor) {

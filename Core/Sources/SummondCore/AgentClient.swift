@@ -9,14 +9,14 @@ public protocol AgentClientProtocol: Sendable {
 }
 
 public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
-  private static let machServiceName = "net.garaba.keybindd.agent.xpc"
+  private static let machServiceName = "net.garaba.summond.agent.xpc"
 
   private let lock = NSLock()
   private let logger: Logger
   private var connection: NSXPCConnection?
   private var inFlightCalls: [UUID: InFlightCall] = [:]
 
-  public init(logger: Logger = KeybinddLoggers.xpc) {
+  public init(logger: Logger = SummondLoggers.xpc) {
     self.logger = logger
   }
 
@@ -50,7 +50,7 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
 
   private func call(
     operation: String,
-    _ body: @escaping @Sendable (KeybinddAgentXPC, @escaping @Sendable (Data) -> Void) -> Void
+    _ body: @escaping @Sendable (SummondAgentXPC, @escaping @Sendable (Data) -> Void) -> Void
   ) async throws -> AgentStatus {
     let callID = UUID()
     return try await XPCAsyncBridge.perform(
@@ -81,8 +81,8 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
 
   private func makeRemoteProxy(
     errorHandler: @escaping (Error) -> Void = { _ in }
-  ) -> KeybinddAgentXPC {
-    connectionProxy().remoteObjectProxyWithErrorHandler(errorHandler) as! KeybinddAgentXPC
+  ) -> SummondAgentXPC {
+    connectionProxy().remoteObjectProxyWithErrorHandler(errorHandler) as! SummondAgentXPC
   }
 
   private func connectionProxy() -> NSXPCConnection {
@@ -92,7 +92,7 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
       }
 
       let newConnection = NSXPCConnection(machServiceName: Self.machServiceName, options: [])
-      newConnection.remoteObjectInterface = NSXPCInterface(with: KeybinddAgentXPC.self)
+      newConnection.remoteObjectInterface = NSXPCInterface(with: SummondAgentXPC.self)
       newConnection.interruptionHandler = { [weak self] in
         self?.failInFlightCalls { operation in
           XPCBridgeError.connectionInterrupted(operation: operation)
@@ -108,7 +108,7 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
       if let teamIdentifier = CodeSigningIdentity.selfTeamIdentifier(logger: logger) {
         let requirement = XPCClientRequirement.requirementString(
           teamIdentifier: teamIdentifier,
-          bundleIdentifier: KeybinddBundleIdentifiers.agent
+          bundleIdentifier: SummondBundleIdentifiers.agent
         )
         newConnection.setCodeSigningRequirement(requirement)
       } else {
