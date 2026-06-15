@@ -217,6 +217,9 @@ final class ServiceManager {
   }
 
   func openAccessibilitySettings() {
+    #if DEBUG
+      if UITestHarness.isActive { return }
+    #endif
     let url = URL(
       string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     )
@@ -226,6 +229,9 @@ final class ServiceManager {
   }
 
   func openInputMonitoringSettings() {
+    #if DEBUG
+      if UITestHarness.isActive { return }
+    #endif
     let url = URL(
       string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
     )
@@ -283,6 +289,10 @@ final class ServiceManager {
   }
 
   private func launchStatusItem() {
+    #if DEBUG
+      // The menu-bar login item is a real nested app; never spawn it under test.
+      if UITestHarness.isActive { return }
+    #endif
     let statusItemURL = Bundle.main.bundleURL
       .appendingPathComponent("Contents/Library/LoginItems/KeybinddStatus.app")
     guard FileManager.default.fileExists(atPath: statusItemURL.path) else {
@@ -302,6 +312,9 @@ final class ServiceManager {
   }
 
   private func terminateStatusItem() {
+    #if DEBUG
+      if UITestHarness.isActive { return }
+    #endif
     let applications = NSRunningApplication.runningApplications(
       withBundleIdentifier: KeybinddBundleIdentifiers.statusItem
     )

@@ -92,6 +92,7 @@ struct ShortcutRecorderView: View {
       startRecording()
     }
     .accessibilityElement(children: .ignore)
+    .accessibilityIdentifier("editor.shortcutRecorder")
     .accessibilityLabel("Shortcut recorder")
     .accessibilityValue(accessibilityValue)
     .accessibilityHint("Activate to record a shortcut")
@@ -103,6 +104,9 @@ struct ShortcutRecorderView: View {
   }
 
   private var accessibilityValue: String {
+    if isRecording {
+      return "recording"
+    }
     guard let shortcut = shortcut.shortcut else {
       return "no shortcut"
     }

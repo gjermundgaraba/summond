@@ -90,6 +90,7 @@ struct BindingEditorView: View {
       }
       .labelsHidden()
       .pickerStyle(.segmented)
+      .accessibilityIdentifier("editor.modePicker")
 
       HStack(spacing: 14) {
         SpacesAnimationView(mode: editorDraft.mode)
@@ -122,6 +123,7 @@ struct BindingEditorView: View {
           model.cancelEditing()
         }
         .keyboardShortcut(.cancelAction)
+        .accessibilityIdentifier("editor.cancelButton")
 
         Button("Save") {
           Task {
@@ -131,6 +133,7 @@ struct BindingEditorView: View {
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.defaultAction)
         .disabled(!canSave(with: validationMessages))
+        .accessibilityIdentifier("editor.saveButton")
       }
       .padding(.horizontal, 20)
       .padding(.vertical, 12)

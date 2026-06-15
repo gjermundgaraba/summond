@@ -8,7 +8,20 @@ struct KeybinddApp: App {
   @State private var serviceManager: ServiceManager
   @State private var preferencesModel: PreferencesViewModel
 
+  #if DEBUG
+    @NSApplicationDelegateAdaptor(UITestAppDelegate.self) private var uiTestAppDelegate
+  #endif
+
   init() {
+    #if DEBUG
+      if UITestHarness.isActive {
+        let (serviceManager, preferencesModel) = UITestHarness.makeDependencies()
+        _serviceManager = State(initialValue: serviceManager)
+        _preferencesModel = State(initialValue: preferencesModel)
+        return
+      }
+    #endif
+
     let agentClient = AgentClient()
     let store: any ConfigurationStore
     let storageBanner: PreferencesBanner?

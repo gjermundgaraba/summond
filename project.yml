@@ -109,6 +109,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.tests
         GENERATE_INFOPLIST_FILE: YES
+  KeybinddUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Keybindd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.keybindd.uitests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Keybindd:
     build:
@@ -124,3 +135,13 @@ schemes:
       config: Release
     archive:
       config: Release
+  KeybinddUITests:
+    build:
+      targets:
+        Keybindd: all
+        KeybinddUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: KeybinddUITests
+          parallelizable: false

@@ -49,6 +49,7 @@ struct ContentView: View {
           Label("Add Shortcut", systemImage: "plus")
         }
         .help("Add shortcut")
+        .accessibilityIdentifier("toolbar.addShortcut")
 
         Button {
           deleteSelection()
@@ -57,6 +58,7 @@ struct ContentView: View {
         }
         .help("Delete selected shortcut")
         .disabled(selection == nil || preferencesModel.isSaving)
+        .accessibilityIdentifier("toolbar.deleteShortcut")
 
         Button {
           Task { await serviceManager.reloadAgentConfiguration() }
@@ -124,12 +126,20 @@ struct ContentView: View {
       isOnboardingPresented = true
     }
     .onChange(of: preferencesModel.editorPresentationID) { _, _ in
+      #if DEBUG
+        // The UI-test harness hosts the editor in its own AppKit window; opening
+        // the SwiftUI scene too would create a duplicate editor.
+        if UITestHarness.isActive { return }
+      #endif
       if preferencesModel.editorDraft != nil {
         openWindow(id: "binding-editor")
         NSApp.activate()
       }
     }
     .onChange(of: preferencesModel.editorDraft == nil) { _, isNil in
+      #if DEBUG
+        if UITestHarness.isActive { return }
+      #endif
       if isNil {
         dismissWindow(id: "binding-editor")
       }

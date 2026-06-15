@@ -69,6 +69,7 @@ struct AppPickerView: View {
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
+            .accessibilityIdentifier("appRow.\(app.bundleID)")
           }
           .frame(maxHeight: .infinity)
           .searchable(text: $searchText, prompt: "Search apps")

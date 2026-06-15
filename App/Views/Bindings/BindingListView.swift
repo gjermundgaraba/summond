@@ -14,6 +14,7 @@ struct BindingListView: View {
           appInfo: model.displayInfo(for: binding.target.bundleID)
         )
         .tag(binding.id)
+        .accessibilityIdentifier("bindingRow.\(binding.target.bundleID)")
         .contentShape(Rectangle())
         .simultaneousGesture(
           TapGesture(count: 2).onEnded {
@@ -32,6 +33,7 @@ struct BindingListView: View {
               }
             }
           }
+          .accessibilityIdentifier("bindingRow.delete")
         }
       }
     }
@@ -79,6 +81,7 @@ private struct EmptyBindingsView: View {
         addAction()
       }
       .buttonStyle(.borderedProminent)
+      .accessibilityIdentifier("emptyState.addShortcut")
     }
     .multilineTextAlignment(.center)
   }

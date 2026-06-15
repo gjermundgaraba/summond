@@ -1,4 +1,4 @@
-.PHONY: help project build dev-build core-build test core-test app-test test-tart tart-ensure-base lint lint-fix release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart tart-ensure-base lint lint-fix release-local release-build release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
@@ -17,7 +17,8 @@ help:
 		'  make test           Run Core package tests and app unit tests' \
 		'  make core-test      Run Core package tests' \
 		'  make app-test       Run Xcode app unit tests' \
-		'  make test-tart      Run tests in a clean disposable Tart VM' \
+		'  make ui-test        Run XCUITest UI tests (drives a real GUI; intended for the Tart VM)' \
+		'  make test-tart      Run unit + UI tests in a clean disposable Tart VM' \
 		'  make tart-ensure-base  Create the reusable Tart base VM if missing' \
 		'  make lint           Run swift-format lint' \
 		'  make lint-fix       Apply swift-format formatting' \
@@ -44,6 +45,14 @@ core-test:
 app-test: project
 	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)'
 
+# XCUITest UI tests drive a real GUI app, so they run only inside the Tart VM
+# (via test-tart). Kept in a separate scheme so host `make test`/`app-test`
+# stays unit-only and never hijacks a developer's screen. The guard refuses to
+# run on a host Mac unless explicitly forced; test-tart sets it inside the VM.
+ui-test: project
+	@[ "$${ALLOW_HOST_UITESTS:-}" = "1" ] || { echo 'make ui-test drives a real GUI; run via make test-tart, or set ALLOW_HOST_UITESTS=1 to force on this host.' >&2; exit 1; }
+	$(XCODEBUILD) test -project $(PROJECT) -scheme KeybinddUITests -destination '$(DESTINATION)' -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180
+
 test-tart:
 	scripts/tart-test.sh "$(BASE_VM)"
 
@@ -51,10 +60,10 @@ tart-ensure-base:
 	scripts/tart-ensure-base.sh "$(BASE_VM)"
 
 lint:
-	xcrun swift format lint --recursive Core/Sources Core/Tests App AppTests Agent Status
+	xcrun swift format lint --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
 
 lint-fix:
-	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status
+	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
 
 release-local:
 	scripts/release.sh --local

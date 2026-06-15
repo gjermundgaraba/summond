@@ -86,6 +86,11 @@ final class PreferencesViewModel {
       bundleID: "",
       mode: .launch
     )
+    #if DEBUG
+      if UITestHarness.isActive, let shortcut = UITestHarness.prefilledDraftShortcut {
+        editorDraft?.shortcut = shortcut
+      }
+    #endif
     editorPresentationID = UUID()
   }
 

@@ -83,11 +83,14 @@ private final class SuspendingLoginItemService: LoginItemServiceManaging, @unche
   var unregisterCalls: Int { lock.withLock { unregisterCount } }
 
   func waitUntilRegisterSuspended() async -> Bool {
-    for _ in 0..<100 {
+    // Poll with a small delay rather than bare yields: under load (e.g. a busy
+    // CI VM) the detached register() task may not have suspended within a fixed
+    // number of cooperative yields, which made this intermittently flaky.
+    for _ in 0..<500 {
       if lock.withLock({ pending != nil }) {
         return true
       }
-      await Task.yield()
+      try? await Task.sleep(nanoseconds: 2_000_000)
     }
     return false
   }

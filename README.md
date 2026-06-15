@@ -128,7 +128,8 @@ Run the full test suite:
 make test
 ```
 
-Run the same test gate in a clean disposable Tart VM:
+Run the same test gate, plus the XCUITest UI suite, in a clean disposable Tart
+VM:
 
 ```bash
 make test-tart
@@ -137,10 +138,23 @@ make test-tart
 `make test-tart` ensures a reusable Tart base VM named
 `codex-macos-tahoe-xcodegen-base` exists, clones it to a disposable VM, mounts
 this checkout at `/Volumes/My Shared Files/keybindd`, copies it to a guest-local
-temp directory, then runs `make test` there. The disposable VM is stopped and
-deleted after the run. Use `BASE_VM=<name>` to choose a different prepared base.
+temp directory, then runs `make test ui-test` there. The XCUITest UI tests
+(`make ui-test`) drive a real GUI app, so they run only inside the Tart VM and
+are intentionally excluded from host `make test`. The disposable VM is stopped
+and deleted after the run. Use `BASE_VM=<name>` to choose a different prepared
+base.
 If the base is missing, `scripts/tart-ensure-base.sh` creates it from
 `ghcr.io/cirruslabs/macos-tahoe-xcode:latest` and installs XcodeGen.
+
+The UI suite drives the real views, view models, and persistence (a Debug-only
+harness injects fakes for XPC/SMAppService/catalog/store). SwiftUI scene windows
+do not render under XCUITest in the Tart VM, so the harness hosts the real views
+in AppKit windows; the production *scene* layer is therefore not covered by
+these tests and remains manual-test-only — `WindowGroup`/`Window`/`Settings`
+presentation, the menu commands (⌘N/⌘↩/⌦/⌘R), the `keybindd://` deep link,
+window placement/restoration, and `scenePhase` reactivation. `make ui-test`
+refuses to run on a host Mac unless `ALLOW_HOST_UITESTS=1` is set (it drives a
+real GUI); `make test-tart` sets it inside the VM.
 
 Run only Core package tests or only Xcode app tests:
 

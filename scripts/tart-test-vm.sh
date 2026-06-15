@@ -88,4 +88,4 @@ tart exec "$vm" /bin/zsh -lc \
      --exclude ".swiftpm" \
      "/Volumes/My Shared Files/keybindd/" "$run_root/checkout/"
    cd "$run_root/checkout"
-   make test'
+   ALLOW_HOST_UITESTS=1 make test ui-test'

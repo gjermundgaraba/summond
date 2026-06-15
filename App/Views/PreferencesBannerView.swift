@@ -23,6 +23,7 @@ struct PreferencesBannerView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(.red)
+        .accessibilityIdentifier("banner.resetButton")
       }
     }
     .padding(12)

@@ -20,6 +20,7 @@ struct SettingsView: View {
           )
         )
         .disabled(preferencesModel.isSaving)
+        .accessibilityIdentifier("settings.verboseLogging")
 
         Toggle(
           "Show menu bar icon",
