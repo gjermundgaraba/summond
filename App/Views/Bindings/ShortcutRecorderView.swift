@@ -88,7 +88,6 @@ struct ShortcutRecorderView: View {
       return .handled
     }
     .onTapGesture {
-      isFocused = true
       startRecording()
     }
     .accessibilityElement(children: .ignore)
@@ -117,7 +116,11 @@ struct ShortcutRecorderView: View {
     if !isRecording {
       errorMessage = nil
       isRecording = true
-      isFocused = false
+      // Do NOT drive `isFocused` here. The AppKit recorder view takes first
+      // responder to capture the keystroke (see ShortcutRecorderNSView); forcing
+      // SwiftUI focus state in the same turn races that hand-off and can yank
+      // first responder back out, which fires resignFirstResponder() ->
+      // cancelRecordingIfNeeded() and cancels recording the instant it starts.
     }
   }
 }

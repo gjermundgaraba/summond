@@ -1,3 +1,4 @@
+import AppKit
 import SummondCore
 import SwiftUI
 
@@ -5,6 +6,18 @@ struct BindingListView: View {
   var model: PreferencesViewModel
   @Binding var selection: StoredBinding.ID?
   var addAction: () -> Void
+
+  // Double-click-to-edit is driven by a non-consuming local mouse monitor, not a
+  // row gesture: any tap gesture on a row races the List's native single-click
+  // selection and makes clicks miss. The monitor maps a double-click to a row
+  // using `listClickRegion` (a passthrough view that converts the click into the
+  // list's coordinate space) and `rowFrames` (each row's frame in that space),
+  // without ever competing for the event.
+  @State private var listClickRegion: NSView?
+  @State private var editorDoubleClickMonitor: Any?
+  @State private var rowFrames: [StoredBinding.ID: CGRect] = [:]
+
+  private static let rowSpace = "bindingRows"
 
   var body: some View {
     List(selection: $selection) {
@@ -15,14 +28,18 @@ struct BindingListView: View {
         )
         .tag(binding.id)
         .accessibilityIdentifier("bindingRow.\(binding.target.bundleID)")
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-          TapGesture(count: 2).onEnded {
-            model.beginEditing(binding)
+        // Publish the row's frame for the double-click monitor (see state vars).
+        .background(
+          GeometryReader { geometry in
+            Color.clear.preference(
+              key: RowFrameKey.self,
+              value: [binding.id: geometry.frame(in: .named(Self.rowSpace))]
+            )
           }
         )
         .contextMenu {
           Button("Edit") {
+            selection = binding.id
             model.beginEditing(binding)
           }
           Button("Delete", role: .destructive) {
@@ -61,6 +78,103 @@ struct BindingListView: View {
         self.selection = nil
       }
     }
+    .coordinateSpace(.named(Self.rowSpace))
+    .onPreferenceChange(RowFrameKey.self) { frames in
+      rowFrames = frames
+    }
+    .background(
+      ListClickRegionReader { view in
+        listClickRegion = view
+      }
+    )
+    .onAppear { installDoubleClickMonitor() }
+    .onDisappear { removeDoubleClickMonitor() }
+  }
+
+  private func installDoubleClickMonitor() {
+    guard editorDoubleClickMonitor == nil else {
+      return
+    }
+    editorDoubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+      event in
+      // Fires on the main thread; the event is returned unchanged so the click
+      // still drives the List's own selection.
+      MainActor.assumeIsolated {
+        handlePotentialDoubleClick(event)
+      }
+      return event
+    }
+  }
+
+  private func removeDoubleClickMonitor() {
+    if let editorDoubleClickMonitor {
+      NSEvent.removeMonitor(editorDoubleClickMonitor)
+    }
+    editorDoubleClickMonitor = nil
+  }
+
+  private func handlePotentialDoubleClick(_ event: NSEvent) {
+    guard
+      event.clickCount == 2,
+      let region = listClickRegion,
+      region.window == event.window
+    else {
+      return
+    }
+
+    // Edit only when the double-click hit an actual row, so empty list space,
+    // the toolbar, and the title bar are ignored.
+    let point = region.convert(event.locationInWindow, from: nil)
+    guard
+      let id = rowFrames.first(where: { $0.value.contains(point) })?.key,
+      let binding = model.draft.bindings.first(where: { $0.id == id })
+    else {
+      return
+    }
+
+    selection = id
+    model.beginEditing(binding)
+  }
+}
+
+/// Installs a transparent, event-transparent NSView that tracks the List's
+/// bounds. `hitTest` returns nil so the view never participates in event
+/// routing — it exists purely to convert screen/window coordinates into the
+/// list's coordinate space for the double-click monitor.
+private struct ListClickRegionReader: NSViewRepresentable {
+  var onResolve: (NSView) -> Void
+
+  func makeNSView(context: Context) -> NSView {
+    let view = PassthroughView()
+    DispatchQueue.main.async {
+      onResolve(view)
+    }
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {}
+
+  private final class PassthroughView: NSView {
+    // Match SwiftUI's top-left origin so window->view coordinate conversion
+    // lines up with the row frames captured in SwiftUI coordinate spaces.
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      nil
+    }
+  }
+}
+
+/// Row frames in the list's coordinate space, keyed by binding, so a
+/// double-click can be matched to the row under the cursor.
+private struct RowFrameKey: PreferenceKey {
+  static let defaultValue: [StoredBinding.ID: CGRect] = [:]
+
+  static func reduce(
+    value: inout [StoredBinding.ID: CGRect],
+    nextValue: () -> [StoredBinding.ID: CGRect]
+  ) {
+    value.merge(nextValue()) { _, new in new }
   }
 }
 
@@ -114,19 +228,27 @@ private struct BindingRowView: View {
           .lineLimit(1)
       }
 
-      Spacer(minLength: 12)
+      Spacer(minLength: 16)
 
-      ShortcutPill(shortcut: binding.shortcut)
+      // Shortcut pill and mode badge form one right-anchored group: the pill
+      // sits in a fixed column so the keys line up across rows, and the badge is
+      // flush to the trailing edge so there is a clean right margin instead of
+      // each badge floating with leftover space.
+      HStack(spacing: 10) {
+        ShortcutPill(shortcut: binding.shortcut)
+          .frame(minWidth: 52, alignment: .trailing)
 
-      Text(binding.target.mode.title)
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.7), in: Capsule())
+        Text(binding.target.mode.title)
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 4)
+          .background(.quaternary.opacity(0.7), in: Capsule())
+          .frame(width: 150, alignment: .trailing)
+      }
     }
-    .padding(.vertical, 7)
+    .padding(.vertical, 8)
   }
 }
 

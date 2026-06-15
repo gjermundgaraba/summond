@@ -45,34 +45,46 @@ struct AppPickerView: View {
           }
           .frame(maxWidth: .infinity, minHeight: 150)
         } else {
-          List(filteredApps) { app in
-            Button {
-              editorDraft.bundleID = app.bundleID
-            } label: {
-              HStack(spacing: 10) {
-                AppRowIcon(url: app.url)
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(app.displayName)
-                    .lineLimit(1)
-                  Text(app.bundleID)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+          VStack(spacing: 8) {
+            appSearchField
+
+            ScrollViewReader { proxy in
+              List(filteredApps) { app in
+                Button {
+                  editorDraft.bundleID = app.bundleID
+                } label: {
+                  HStack(spacing: 10) {
+                    AppRowIcon(url: app.url)
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(app.displayName)
+                        .lineLimit(1)
+                      Text(app.bundleID)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                    Spacer()
+                    if app.bundleID == editorDraft.bundleID {
+                      Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                    }
+                  }
+                  .contentShape(Rectangle())
                 }
-                Spacer()
-                if app.bundleID == editorDraft.bundleID {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
-                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("appRow.\(app.bundleID)")
               }
-              .contentShape(Rectangle())
+              // Results re-rank on every keystroke, so the list would otherwise
+              // stay scrolled wherever the previous ranking left it and hide the
+              // new best matches. Pin back to the top result on each change.
+              .onChange(of: searchText) { _, _ in
+                guard let topID = filteredApps.first?.id else { return }
+                proxy.scrollTo(topID, anchor: .top)
+              }
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("appRow.\(app.bundleID)")
+            .frame(maxHeight: .infinity)
           }
-          .frame(maxHeight: .infinity)
-          .searchable(text: $searchText, prompt: "Search apps")
         }
       }
       .frame(maxHeight: .infinity)
@@ -81,6 +93,29 @@ struct AppPickerView: View {
     .task {
       await model.loadInstalledApplicationsIfNeeded()
     }
+  }
+
+  private var appSearchField: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(.secondary)
+      TextField("Search apps", text: $searchText)
+        .textFieldStyle(.plain)
+        .accessibilityIdentifier("appPicker.search")
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear search")
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
   }
 
   private var targetWell: some View {

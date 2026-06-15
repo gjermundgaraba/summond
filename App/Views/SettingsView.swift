@@ -131,6 +131,8 @@ struct SettingsView: View {
       "Timed out"
     case .disabledByUserInput:
       "Disabled by user input"
+    case .restartLoopDetected:
+      "Paused (restart loop)"
     }
   }
 }

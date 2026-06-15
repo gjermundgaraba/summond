@@ -13,6 +13,9 @@ public enum EventTapFailureReason: String, Codable, Equatable, Sendable {
   case installationFailed
   case disabledByTimeout
   case disabledByUserInput
+  /// The agent detected a crash/restart loop and is deliberately not installing
+  /// the tap to avoid wedging the keyboard. See `RestartThrottle`.
+  case restartLoopDetected
 }
 
 public struct AgentStatus: Codable, Equatable, Sendable {

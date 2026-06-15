@@ -84,6 +84,8 @@ public enum StatusItemPresentationMapper {
       "Event tap timed out"
     case .disabledByUserInput:
       "Event tap disabled"
+    case .restartLoopDetected:
+      "Event tap paused (restart loop)"
     }
   }
 }
