@@ -245,6 +245,52 @@ final class SummondUITests: XCTestCase {
       "Onboarding did not advance to the Accessibility step")
   }
 
+  /// The completion screen should not offer to add a first shortcut once the
+  /// user already has bindings.
+  func testCompletedOnboardingWithExistingBindingHidesFirstShortcutAction() {
+    let app = launch(seed: "one", onboarded: false)
+
+    XCTAssertTrue(
+      app.staticTexts["Shortcut ⌘F"].waitForExistence(timeout: launchTimeout),
+      "Seeded binding row was not shown")
+    let getStarted = app.buttons["onboarding.getStartedButton"]
+    XCTAssertTrue(getStarted.waitForExistence(timeout: uiTimeout), "Onboarding did not present")
+    getStarted.click()
+
+    XCTAssertTrue(
+      staticTextContaining(app, "You're all set").waitForExistence(timeout: uiTimeout),
+      "Onboarding did not reach the completion step")
+    XCTAssertFalse(
+      app.buttons["Add Your First Shortcut"].waitForExistence(timeout: 3),
+      "First-shortcut action should be hidden when a binding already exists")
+  }
+
+  /// Dismissing completed onboarding with Done should stay dismissed instead of
+  /// immediately presenting the same completion sheet again.
+  func testCompletedOnboardingDoneStaysDismissed() {
+    let app = launch(seed: "one", onboarded: false)
+
+    XCTAssertTrue(
+      app.staticTexts["Shortcut ⌘F"].waitForExistence(timeout: launchTimeout),
+      "Seeded binding row was not shown")
+    let getStarted = app.buttons["onboarding.getStartedButton"]
+    XCTAssertTrue(getStarted.waitForExistence(timeout: uiTimeout), "Onboarding did not present")
+    getStarted.click()
+
+    let completionTitle = staticTextContaining(app, "You're all set")
+    XCTAssertTrue(
+      completionTitle.waitForExistence(timeout: uiTimeout),
+      "Onboarding did not reach the completion step")
+    app.buttons["Done"].click()
+
+    XCTAssertTrue(
+      waitForDisappearance(completionTitle, timeout: uiTimeout),
+      "Onboarding completion sheet did not dismiss")
+    XCTAssertFalse(
+      completionTitle.waitForExistence(timeout: 3),
+      "Onboarding completion sheet should stay dismissed after Done")
+  }
+
   // MARK: - Real-store persistence across relaunch
 
   /// Backs the app with the *shipped* `UserDefaultsConfigurationStore` against an

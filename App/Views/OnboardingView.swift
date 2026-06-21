@@ -4,6 +4,7 @@ import SwiftUI
 struct OnboardingView: View {
   var serviceManager: ServiceManager
   @Binding var hasCompletedOnboarding: Bool
+  var showsFirstShortcutAction: Bool
   var onAddFirstShortcut: () -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var step: OnboardingStep = .welcome
@@ -216,11 +217,13 @@ struct OnboardingView: View {
 
         Spacer()
 
-        Button("Add Your First Shortcut") {
-          completeAndDismiss(addFirstShortcut: true)
+        if showsFirstShortcutAction {
+          Button("Add Your First Shortcut") {
+            completeAndDismiss(addFirstShortcut: true)
+          }
+          .buttonStyle(.borderedProminent)
+          .keyboardShortcut(.defaultAction)
         }
-        .buttonStyle(.borderedProminent)
-        .keyboardShortcut(.defaultAction)
       }
     }
   }

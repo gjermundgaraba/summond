@@ -86,6 +86,7 @@ struct ContentView: View {
       OnboardingView(
         serviceManager: serviceManager,
         hasCompletedOnboarding: $hasCompletedOnboarding,
+        showsFirstShortcutAction: preferencesModel.draft.bindings.isEmpty,
         onAddFirstShortcut: {
           preferencesModel.beginAdding()
         }
@@ -167,9 +168,7 @@ struct ContentView: View {
       return
     }
 
-    if (!hasCompletedOnboarding && !dismissedOnboardingThisSession)
-      || (serviceManager.needsSetup && !dismissedOnboardingThisSession)
-    {
+    if !hasCompletedOnboarding && !dismissedOnboardingThisSession {
       isOnboardingPresented = true
     }
   }
