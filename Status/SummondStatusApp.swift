@@ -1,6 +1,6 @@
 import AppKit
-import SummondCore
 import Observation
+import SummondCore
 import SwiftUI
 
 @main

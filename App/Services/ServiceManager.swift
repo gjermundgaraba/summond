@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
-import SummondCore
 import Observation
 @preconcurrency import ServiceManagement
+import SummondCore
 
 protocol LoginItemServiceManaging: Sendable {
   var status: ServiceRegistrationStatus { get }

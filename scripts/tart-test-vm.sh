@@ -3,13 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 vm="${1:-}"
+job="${2:-test}"
 guest_repo="/Volumes/My Shared Files/summond"
 ready_timeout=300
 started_vm=0
 run_pid=""
 
 usage() {
-  echo "usage: $0 <tart-vm>" >&2
+  echo "usage: $0 <tart-vm> [job]   # job: test (default) | smoke" >&2
 }
 
 cleanup() {
@@ -78,8 +79,17 @@ else
   wait_for_repo
 fi
 
+case "$job" in
+  test | smoke) ;;
+  *)
+    echo "unknown job '$job' (expected: test | smoke)" >&2
+    exit 64
+    ;;
+esac
+
 tart exec "$vm" /bin/zsh -lc \
   'set -euo pipefail
+   job="$1"
    run_root="$(mktemp -d "${TMPDIR:-/tmp}/summond-test.XXXXXX")"
    trap '\''rm -rf "$run_root"'\'' EXIT
    /usr/bin/rsync -a --delete \
@@ -88,4 +98,8 @@ tart exec "$vm" /bin/zsh -lc \
      --exclude ".swiftpm" \
      "/Volumes/My Shared Files/summond/" "$run_root/checkout/"
    cd "$run_root/checkout"
-   ALLOW_HOST_UITESTS=1 make test ui-test'
+   case "$job" in
+     test) ALLOW_HOST_UITESTS=1 make test ui-test ;;
+     smoke) scripts/smoke-in-vm.sh ;;
+   esac' \
+  summond-tart-job "$job"

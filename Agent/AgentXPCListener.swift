@@ -1,16 +1,14 @@
 import Foundation
-import SummondCore
 import OSLog
+import SummondCore
 
 final class AgentXPCListener: NSObject, NSXPCListenerDelegate {
-  private static let machServiceName = "net.garaba.summond.agent.xpc"
-
   private let listener: NSXPCListener
   private let exportedObject: AgentXPCService
   private let logger: Logger
 
   init(supervisor: AgentSupervisor, logger: Logger = SummondLoggers.xpc) {
-    self.listener = NSXPCListener(machServiceName: Self.machServiceName)
+    self.listener = NSXPCListener(machServiceName: SummondBundleIdentifiers.agentMachService)
     self.exportedObject = AgentXPCService(supervisor: supervisor)
     self.logger = logger
     super.init()
@@ -31,9 +29,11 @@ final class AgentXPCListener: NSObject, NSXPCListenerDelegate {
       let requirement = XPCClientRequirement.clientRequirementString(teamIdentifier: teamIdentifier)
       connection.setCodeSigningRequirement(requirement)
     } else {
-      #if DEBUG
+      #if DEBUG || SMOKE_TEST
+        // Debug and smoke (ad-hoc, no team) builds accept any client; the smoke
+        // build trades the team requirement for being runnable in a VM.
         logger.warning(
-          "XPC client code-signing requirement skipped because debug agent has no team identifier")
+          "XPC client code-signing requirement skipped because this build has no team identifier")
       #else
         logger.fault(
           "XPC connection rejected because release agent could not derive its team identifier")

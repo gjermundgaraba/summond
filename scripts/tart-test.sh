@@ -3,10 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 base_vm="${1:-codex-macos-tahoe-xcodegen-base}"
+job="${2:-test}"
 run_vm=""
 
 usage() {
-  echo "usage: $0 [base-vm]" >&2
+  echo "usage: $0 [base-vm] [job]   # job: test (default) | smoke" >&2
 }
 
 cleanup() {
@@ -37,4 +38,4 @@ run_vm="${safe_base_name}-run-$(date +%Y%m%d-%H%M%S)-$$"
 echo "Cloning clean Tart VM '$run_vm' from base '$base_vm'..."
 tart clone "$base_vm" "$run_vm"
 
-"$SCRIPT_DIR/tart-test-vm.sh" "$run_vm"
+"$SCRIPT_DIR/tart-test-vm.sh" "$run_vm" "$job"

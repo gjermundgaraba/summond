@@ -1,13 +1,25 @@
 import AppKit
+import ApplicationServices
 import Foundation
-import SummondCore
 import OSLog
+import SummondCore
 
 @main
 struct SummondAgentMain {
+  // Upper bound on every synchronous Accessibility message the agent sends
+  // (e.g. the Dock-menu traversal in DockMenuOpener). The system default is
+  // undocumented and applies per message, so without this a degraded Dock could
+  // stall the main actor — and the XPC listener with it — across a multi-call
+  // AX traversal.
+  private static let axMessagingTimeoutSeconds: Float = 1.5
+
   @MainActor
   static func main() {
     NSApplication.shared.setActivationPolicy(.accessory)
+
+    // Bound AX messaging process-wide before any AX work begins. The system-wide
+    // element seeds the timeout for every AXUIElement the process creates.
+    _ = AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axMessagingTimeoutSeconds)
 
     // Crash-loop circuit breaker. launchd relaunches the agent on every
     // unsuccessful exit (KeepAlive); if it is crash-looping, re-installing an

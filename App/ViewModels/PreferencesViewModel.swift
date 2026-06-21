@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
-import SummondCore
 import Observation
+import SummondCore
 
 @MainActor
 @Observable
@@ -80,6 +80,10 @@ final class PreferencesViewModel {
   }
 
   func beginAdding() {
+    guard editorDraft == nil else {
+      editorPresentationID = UUID()
+      return
+    }
     editorDraft = BindingEditorDraft(
       purpose: .add,
       shortcut: .empty,
@@ -95,6 +99,10 @@ final class PreferencesViewModel {
   }
 
   func beginEditing(_ binding: StoredBinding) {
+    guard editorDraft == nil else {
+      editorPresentationID = UUID()
+      return
+    }
     editorDraft = BindingEditorDraft(
       purpose: .edit(binding.id),
       shortcut: ShortcutDraft(key: binding.shortcut.key, mods: binding.shortcut.mods),

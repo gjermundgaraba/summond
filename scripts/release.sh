@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/release.sh [--local] [options]
+Usage: scripts/release.sh [--local|--smoke] [options]
 
 Build, sign, verify, package, and notarize Summond.app.
 
@@ -17,6 +17,10 @@ Modes:
       Gatekeeper assessment failures without aborting. Signing identity
       mismatches remain fatal. This is intended for Apple Development
       identities and local plumbing checks.
+
+  --smoke
+      Builds the SMOKE_TEST entry point, signs ad-hoc, and skips notarization.
+      Used by scripts/smoke-in-vm.sh / make smoke-tart.
 
 Options:
   --identity NAME          Signing identity. Default: SIGNING_IDENTITY env or
@@ -44,6 +48,7 @@ CONFIGURATION="Release"
 APP_NAME="Summond.app"
 
 LOCAL_MODE=0
+SMOKE_MODE=0
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -66,6 +71,11 @@ parse_args() {
   while (($#)); do
     case "$1" in
       --local)
+        LOCAL_MODE=1
+        shift
+        ;;
+      --smoke)
+        SMOKE_MODE=1
         LOCAL_MODE=1
         shift
         ;;
@@ -210,6 +220,12 @@ build_release_app() {
   local swiftpm_cache="$ROOT_DIR/.build/release-swiftpm-cache"
   mkdir -p "$build_home" "$module_cache" "$swiftpm_cache"
 
+  local -a extra_build_settings=()
+  if [[ "$SMOKE_MODE" -eq 1 ]]; then
+    log "Building SMOKE_TEST entry point"
+    extra_build_settings+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS=SMOKE_TEST)
+  fi
+
   HOME="$build_home" \
     CFFIXED_USER_HOME="$build_home" \
     XDG_CACHE_HOME="$build_home/.cache" \
@@ -223,6 +239,7 @@ build_release_app() {
     -clonedSourcePackagesDirPath "$swiftpm_cache/source-packages" \
     CODE_SIGNING_ALLOWED=NO \
     CLANG_MODULE_CACHE_PATH="$module_cache" \
+    "${extra_build_settings[@]}" \
     build
 }
 
@@ -260,9 +277,13 @@ apply_launch_agent_spawn_constraint() {
 sign_path() {
   local path="$1"
   log "Signing ${path#"$ROOT_DIR"/}"
+  local timestamp_flag=--timestamp
+  if [[ "$SMOKE_MODE" -eq 1 ]]; then
+    timestamp_flag=--timestamp=none
+  fi
   codesign \
     --force \
-    --timestamp \
+    "$timestamp_flag" \
     --options runtime \
     --sign "$SIGNING_IDENTITY" \
     "$path"
@@ -270,10 +291,14 @@ sign_path() {
 
 sign_artifacts() {
   log "Signing nested code innermost first"
-  require_signing_identity
+  if [[ "$SMOKE_MODE" -eq 1 ]]; then
+    SIGNING_IDENTITY="-"
+  else
+    require_signing_identity
+  fi
 
   local status_app="$APP_PATH/Contents/Library/LoginItems/SummondStatus.app"
-  local agent_app="$APP_PATH/Contents/Resources/SummondAgent.app"
+  local agent_app="$APP_PATH/Contents/MacOS/SummondAgent.app"
 
   [[ -d "$status_app" ]] || die "nested status app not found at $status_app"
   [[ -d "$agent_app" ]] || die "nested agent app not found at $agent_app"
@@ -327,7 +352,7 @@ verify_release_identity() {
   log "Verifying signing identities"
   verify_signed_identity "$APP_PATH" "net.garaba.summond" "main app"
   verify_signed_identity \
-    "$APP_PATH/Contents/Resources/SummondAgent.app" \
+    "$APP_PATH/Contents/MacOS/SummondAgent.app" \
     "net.garaba.summond.agent" \
     "agent app"
   verify_signed_identity \

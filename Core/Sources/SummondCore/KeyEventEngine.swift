@@ -240,7 +240,7 @@ public final class KeyEventEngine: @unchecked Sendable {
 
     if verboseLogging {
       logger.debug(
-        "key event: keyCode=\(keyCode, privacy: .public) flags=\(flags.rawValue, privacy: .public)"
+        "key event: keyCode=\(keyCode, privacy: .private) flags=\(flags.rawValue, privacy: .private)"
       )
     }
 

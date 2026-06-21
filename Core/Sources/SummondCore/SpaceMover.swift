@@ -26,6 +26,8 @@ struct SpaceMover: Sendable {
   private typealias MainConnectionID = @convention(c) () -> Int32
   private typealias CopyActiveDisplay = @convention(c) (Int32) -> Unmanaged<CFString>?
   private typealias ManagedDisplayCurrentSpace = @convention(c) (Int32, CFString) -> UInt64
+  private typealias CopySpacesForWindows =
+    @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
   private typealias PerformBridgedOperation = @convention(c) (UnsafeMutableRawPointer) -> Int64
   private typealias MsgSendAlloc = @convention(c) (AnyClass, Selector) -> UnsafeMutableRawPointer?
   private typealias MsgSendInitWithWindowsSpaceID =
@@ -72,11 +74,16 @@ struct SpaceMover: Sendable {
   // Arbitrary non-zero tag; only needs to be unique while a move is in flight.
   private static let compatID: Int32 = 0x6b62_6464
 
+  // `SLSCopySpacesForWindows` selector: include every space the given windows
+  // occupy (current and others), matching yabai's usage.
+  private static let allSpacesSelector: Int32 = 0x7
+
   private let logger: Logger
   private let verboseLogging: Bool
   private let mainConnectionID: MainConnectionID
   private let copyActiveDisplay: CopyActiveDisplay
   private let managedDisplayCurrentSpace: ManagedDisplayCurrentSpace
+  private let copySpacesForWindows: CopySpacesForWindows
   private let mechanism: Mechanism
 
   init?(logger: Logger, verboseLogging: Bool = false) {
@@ -104,6 +111,8 @@ struct SpaceMover: Sendable {
         "SLSCopyActiveMenuBarDisplayIdentifier", as: CopyActiveDisplay.self),
       let managedDisplayCurrentSpace = symbol(
         "SLSManagedDisplayGetCurrentSpace", as: ManagedDisplayCurrentSpace.self),
+      let copySpacesForWindows = symbol(
+        "SLSCopySpacesForWindows", as: CopySpacesForWindows.self),
       let mechanism = Self.resolveMechanism(logger: logger, resolve: resolve)
     else {
       return nil
@@ -114,6 +123,7 @@ struct SpaceMover: Sendable {
     self.mainConnectionID = mainConnectionID
     self.copyActiveDisplay = copyActiveDisplay
     self.managedDisplayCurrentSpace = managedDisplayCurrentSpace
+    self.copySpacesForWindows = copySpacesForWindows
     self.mechanism = mechanism
     if verboseLogging {
       logger.debug("[spaces] using \(mechanism.description) to move windows")
@@ -160,6 +170,31 @@ struct SpaceMover: Sendable {
     }
 
     return managedDisplayCurrentSpace(connection, display)
+  }
+
+  /// Whether any of the given windows occupies the active Mission Control space
+  /// — the same space `moveWindowsToActiveSpace` targets. Unlike a CGWindowList
+  /// onscreen check this is display-aware: with "Displays have separate Spaces"
+  /// enabled, a window merely visible on another display does not count.
+  func anyWindowOnActiveSpace(_ windowIDs: [CGWindowID]) -> Bool {
+    guard !windowIDs.isEmpty else {
+      return false
+    }
+
+    let connection = mainConnectionID()
+    guard let active = activeSpace(connection: connection), active != 0 else {
+      return false
+    }
+
+    guard
+      let spaces = copySpacesForWindows(
+        connection, Self.allSpacesSelector, Self.windowNumberArray(windowIDs)
+      )?.takeRetainedValue() as? [NSNumber]
+    else {
+      return false
+    }
+
+    return spaces.contains { $0.uint64Value == active }
   }
 
   private func performBridgedMove(

@@ -48,13 +48,16 @@ SwiftUI preferences app with bundle identifier `net.garaba.summond`.
 ### `SummondAgent`
 
 LaunchAgent embedded as a faceless helper app bundle at
-`Contents/Resources/SummondAgent.app` (bundle identifier
+`Contents/MacOS/SummondAgent.app` (bundle identifier
 `net.garaba.summond.agent`, `LSUIElement`). It is a bundle rather than a bare
 executable so that the Accessibility permission it requests displays as
 "Summond" with the app icon — TCC shows the requesting bundle's display name
 and icon, and a bare tool would show the raw executable name and a generic
-icon. The LaunchAgent plist's `BundleProgram` points at
-`Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent`.
+icon. It lives under `Contents/MacOS` (a standard code location) rather than
+`Contents/Resources` so the outer app signs it as nested code with its own
+cdhash instead of sealing it as a flat resource tree. The LaunchAgent plist's
+`BundleProgram` points at
+`Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent`.
 
 - Runs in the user's Aqua session.
 - Loads configuration from the shared defaults suite.
@@ -215,8 +218,9 @@ bundle layout:
 ```text
 Summond.app/
   Contents/
-    MacOS/Summond
-    Resources/SummondAgent.app
+    MacOS/
+      Summond
+      SummondAgent.app
     Library/
       LaunchAgents/net.garaba.summond.agent.plist
       LoginItems/SummondStatus.app
@@ -225,7 +229,7 @@ Summond.app/
 The LaunchAgent plist declares:
 
 - `Label`: `net.garaba.summond.agent`
-- `BundleProgram`: `Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent`
+- `BundleProgram`: `Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent`
 - `MachServices`: `net.garaba.summond.agent.xpc`
 - `LimitLoadToSessionType`: `Aqua`
 - `RunAtLoad`: `true`
@@ -249,7 +253,7 @@ bundle contains a nested login item and a LaunchAgent executable. Signing order
 is innermost first:
 
 1. `Contents/Library/LoginItems/SummondStatus.app`
-2. `Contents/Resources/SummondAgent.app`
+2. `Contents/MacOS/SummondAgent.app`
 3. `Summond.app`
 
 Every signing command uses `--options runtime --timestamp --force`. Release mode
@@ -281,3 +285,20 @@ Run the full repository test suite with:
 ```bash
 make test
 ```
+
+The agent's cross-process surface is covered in two layers:
+
+- **Routine (`make test`)** — an anonymous-`NSXPCListener` integration test
+  drives the real `AgentClient` (NSXPC interface, async reply bridge, and
+  `AgentStatus` codec across a genuine XPC boundary), and a static test
+  asserts the LaunchAgent plist's `MachServices` name, `BundleProgram` path, and
+  bundle identifiers against the single `SummondBundleIdentifiers` constants. No
+  signing, launchd, or VM.
+- **Unattended VM (`make smoke-tart`)** — a clean Tart VM builds an ad-hoc-signed
+  `SMOKE_TEST` app, `launchctl`-loads the embedded agent (the `SMOKE_TEST` build
+  relaxes the team requirement so an ad-hoc client connects), and round-trips XPC
+  status against the real agent over the mach service — covering launchd spawn,
+  mach-name resolution, the real `AgentXPCService`, and the codec. It cannot
+  cover `SMAppService` registration, Login Items approval, the team-signed
+  requirement, or `SpawnConstraint`, which need a signed/pre-approved Mac and
+  stay manual.

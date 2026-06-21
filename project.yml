@@ -42,21 +42,24 @@ targets:
           - $(PROJECT_DIR)/scripts/apply-launch-agent-spawn-constraint.sh
           - $(BUILT_PRODUCTS_DIR)/SummondStatus.app/Contents/MacOS/SummondStatus
         outputFiles:
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/SummondAgent.app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/MacOS/SummondAgent.app
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/net.garaba.summond.agent.plist
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/SummondStatus.app
         script: |
           set -euo pipefail
 
           app_contents="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH"
-          resources="$app_contents/Resources"
+          macos="$app_contents/MacOS"
           launch_agents="$app_contents/Library/LaunchAgents"
           login_items="$app_contents/Library/LoginItems"
 
-          mkdir -p "$resources" "$launch_agents" "$login_items"
+          mkdir -p "$macos" "$launch_agents" "$login_items"
 
-          rm -rf "$resources/SummondAgent.app"
-          cp -R "$BUILT_PRODUCTS_DIR/SummondAgent.app" "$resources/SummondAgent.app"
+          # The agent lives in Contents/MacOS (a standard code location) so the
+          # outer app signs it as nested code with its own cdhash, rather than
+          # sealing it as a flat resource tree (which Contents/Resources does).
+          rm -rf "$macos/SummondAgent.app"
+          cp -R "$BUILT_PRODUCTS_DIR/SummondAgent.app" "$macos/SummondAgent.app"
 
           agent_plist="$launch_agents/net.garaba.summond.agent.plist"
           cp "$PROJECT_DIR/App/Resources/net.garaba.summond.agent.plist" "$agent_plist"

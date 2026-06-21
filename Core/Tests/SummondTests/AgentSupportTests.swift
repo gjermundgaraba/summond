@@ -470,6 +470,41 @@ struct XPCAsyncBridgeTests {
   }
 }
 
+@Suite("LaunchAgent property list")
+struct LaunchAgentPlistTests {
+  @Test("Ships a LaunchAgent plist whose wiring matches the client and bundle layout")
+  func plistMatchesContract() throws {
+    let data = try Data(contentsOf: agentPlistURL())
+    let rawPlist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+    let plist = try #require(rawPlist as? [String: Any])
+    let machServices = try #require(plist["MachServices"] as? [String: Bool])
+    let keepAlive = try #require(plist["KeepAlive"] as? [String: Bool])
+
+    #expect(plist["Label"] as? String == SummondBundleIdentifiers.agent)
+    #expect(machServices == [SummondBundleIdentifiers.agentMachService: true])
+    #expect(
+      plist["BundleProgram"] as? String
+        == "Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent")
+    #expect(plist["AssociatedBundleIdentifiers"] as? String == SummondBundleIdentifiers.app)
+    #expect(plist["RunAtLoad"] as? Bool == true)
+    #expect(plist["LimitLoadToSessionType"] as? String == "Aqua")
+    #expect(keepAlive["SuccessfulExit"] == false)
+  }
+
+  /// The source plist, located relative to this test file so it is independent
+  /// of the test runner's working directory. From
+  /// `<repo>/Core/Tests/SummondTests/AgentSupportTests.swift` the repo root is
+  /// four parents up.
+  private func agentPlistURL(_ file: String = #filePath) -> URL {
+    URL(fileURLWithPath: file)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("App/Resources/net.garaba.summond.agent.plist")
+  }
+}
+
 private enum TestXPCBridgeError: Error, Equatable {
   case expected
   case unexpected

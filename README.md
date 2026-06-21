@@ -157,6 +157,12 @@ window placement/restoration, and `scenePhase` reactivation. `make ui-test`
 refuses to run on a host Mac unless `ALLOW_HOST_UITESTS=1` is set (it drives a
 real GUI); `make test-tart` sets it inside the VM.
 
+Routine `make test` covers the agent XPC client/listener contract with an
+anonymous-listener integration test and static LaunchAgent plist assertions.
+`make smoke-tart` adds an unattended Tart VM smoke for launchctl spawn and a real
+mach-service status round-trip. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+full coverage boundary.
+
 Run only Core package tests or only Xcode app tests:
 
 ```bash

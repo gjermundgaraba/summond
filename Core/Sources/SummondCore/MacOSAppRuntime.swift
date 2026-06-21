@@ -272,13 +272,12 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
   }
 
   func hasWindowOnCurrentSpace(processID: pid_t) -> Bool {
-    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-    guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
-    else {
+    guard let spaceMover else {
       return false
     }
 
-    return windowList.contains { Self.standardWindowID(in: $0, processID: processID) != nil }
+    let windowIDs = windowIDsOnAnySpace(processID: processID)
+    return spaceMover.anyWindowOnActiveSpace(windowIDs)
   }
 
   func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID] {

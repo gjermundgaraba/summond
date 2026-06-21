@@ -1,74 +1,70 @@
 import AppKit
 
+// Generates the Summond app icon: press a key, summon a window.
+
 let size = 1024.0
 let img = NSImage(size: NSSize(width: size, height: size))
 img.lockFocus()
 
-// Rounded-square background with a "summon/conjure" violet -> magenta gradient.
 let rect = NSRect(x: 0, y: 0, width: size, height: size)
 let path = NSBezierPath(roundedRect: rect, xRadius: size * 0.2237, yRadius: size * 0.2237)
 path.addClip()
 let grad = NSGradient(colors: [
-  NSColor(srgbRed: 0.46, green: 0.28, blue: 0.95, alpha: 1), // top: violet / indigo
-  NSColor(srgbRed: 0.85, green: 0.12, blue: 0.55, alpha: 1), // bottom: magenta
+  NSColor(srgbRed: 0.46, green: 0.28, blue: 0.95, alpha: 1),
+  NSColor(srgbRed: 0.85, green: 0.12, blue: 0.55, alpha: 1),
 ])!
 grad.draw(in: rect, angle: -90)
 
-// Hero glyph: a bold, filled white window (macwindow.fill is unavailable in this
-// SDK, so it's hand-drawn to stay solid and legible when shrunk to 32px). The
-// title-bar separator and traffic-light dots are punched out so the gradient
-// shows through, then they gracefully disappear at tiny sizes leaving a clean
-// white window block.
-let winW = 620.0
-let winH = 480.0
-let winX = (size - winW) / 2          // horizontally centered
-let winY = (size - winH) / 2 - 55     // slightly low
-let winImg = NSImage(size: NSSize(width: winW, height: winH))
-winImg.lockFocus()
-let winRect = NSRect(x: 0, y: 0, width: winW, height: winH)
+let capW = 672.0
+let capH = 672.0
+let capX = (size - capW) / 2
+let capY = (size - capH) / 2
+let capRect = NSRect(x: capX, y: capY, width: capW, height: capH)
+let capRadius = 132.0
 NSColor.white.setFill()
-NSBezierPath(roundedRect: winRect, xRadius: 44, yRadius: 44).fill()
-// Punch title-bar separator + traffic-light dots.
+NSBezierPath(roundedRect: capRect, xRadius: capRadius, yRadius: capRadius).fill()
+
+let cutW = 384.0
+let cutH = 296.0
+let cutX = (size - cutW) / 2
+let cutY = (size - cutH) / 2 + 24 // slightly below cap center for visual balance
+let cutRect = NSRect(x: cutX, y: cutY, width: cutW, height: cutH)
+let cutRadius = 44.0
 NSGraphicsContext.current!.compositingOperation = .clear
-let titleBarH = 112.0
-let sepThickness = 9.0
-NSBezierPath(rect: NSRect(x: 0, y: winH - titleBarH, width: winW, height: sepThickness)).fill()
-let dotR = 19.0
-let dotCY = winH - titleBarH / 2
-let dotX0 = 64.0
-let dotGap = 62.0
-for i in 0..<3 {
-  let cx = dotX0 + Double(i) * dotGap
-  NSBezierPath(ovalIn: NSRect(x: cx - dotR, y: dotCY - dotR, width: dotR * 2, height: dotR * 2)).fill()
-}
-winImg.unlockFocus()
-winImg.draw(at: NSPoint(x: winX, y: winY), from: .zero, operation: .sourceOver, fraction: 1)
+NSBezierPath(roundedRect: cutRect, xRadius: cutRadius, yRadius: cutRadius).fill()
 
-// Render an SF Symbol tinted solid white via source-atop.
-func tintedSymbol(_ name: String, pointSize: CGFloat, weight: NSFont.Weight) -> NSImage {
-  let cfg = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-  let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)!
-    .withSymbolConfiguration(cfg)!
-  let s = base.size
-  let tinted = NSImage(size: s)
-  tinted.lockFocus()
-  let r = NSRect(origin: .zero, size: s)
-  base.draw(in: r)
-  NSColor.white.set()
-  r.fill(using: .sourceAtop)
-  tinted.unlockFocus()
-  return tinted
+NSGraphicsContext.current!.compositingOperation = .sourceOver
+let dividerH = 30.0
+let dividerY = cutY + cutH - 84.0 // ~title-bar band from the top
+let dividerRect = NSRect(x: cutX, y: dividerY, width: cutW, height: dividerH)
+NSColor.white.setFill()
+NSBezierPath(rect: dividerRect).fill()
+
+func sparklePath(center: NSPoint, r: CGFloat) -> NSBezierPath {
+  let p = NSBezierPath()
+  let cx = center.x, cy = center.y
+  let k = 0.34 // concavity: smaller = pointier star
+  p.move(to: NSPoint(x: cx, y: cy + r))
+  p.curve(to: NSPoint(x: cx + r, y: cy),
+          controlPoint1: NSPoint(x: cx + k * r, y: cy + k * r),
+          controlPoint2: NSPoint(x: cx + k * r, y: cy + k * r))
+  p.curve(to: NSPoint(x: cx, y: cy - r),
+          controlPoint1: NSPoint(x: cx + k * r, y: cy - k * r),
+          controlPoint2: NSPoint(x: cx + k * r, y: cy - k * r))
+  p.curve(to: NSPoint(x: cx - r, y: cy),
+          controlPoint1: NSPoint(x: cx - k * r, y: cy - k * r),
+          controlPoint2: NSPoint(x: cx - k * r, y: cy - k * r))
+  p.curve(to: NSPoint(x: cx, y: cy + r),
+          controlPoint1: NSPoint(x: cx - k * r, y: cy + k * r),
+          controlPoint2: NSPoint(x: cx - k * r, y: cy + k * r))
+  p.close()
+  return p
 }
 
-// Accent glyph: white sparkles in the upper-right, overlapping the window's top
-// corner so the window reads as being summoned / conjured.
-let sparkImg = tintedSymbol("sparkles", pointSize: 300, weight: .semibold)
-let ss = sparkImg.size
-let winRight = winX + winW
-let winTop = winY + winH
-let sparkCenter = NSPoint(x: winRight - 44, y: winTop + 26)
-let sOrigin = NSPoint(x: sparkCenter.x - ss.width / 2, y: sparkCenter.y - ss.height / 2)
-sparkImg.draw(at: sOrigin, from: .zero, operation: .sourceOver, fraction: 1)
+let sparkR = 132.0
+let sparkCenter = NSPoint(x: capX + capW - 36.0, y: capY + capH + 12.0)
+NSColor.white.setFill()
+sparklePath(center: sparkCenter, r: sparkR).fill()
 
 img.unlockFocus()
 

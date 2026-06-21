@@ -9,15 +9,37 @@ public protocol AgentClientProtocol: Sendable {
 }
 
 public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
-  private static let machServiceName = "net.garaba.summond.agent.xpc"
-
   private let lock = NSLock()
   private let logger: Logger
+  private let makeConnection: @Sendable () -> NSXPCConnection
   private var connection: NSXPCConnection?
   private var inFlightCalls: [UUID: InFlightCall] = [:]
 
-  public init(logger: Logger = SummondLoggers.xpc) {
+  public convenience init(logger: Logger = SummondLoggers.xpc) {
+    self.init(logger: logger) {
+      Self.makeMachServiceConnection(logger: logger)
+    }
+  }
+
+  init(logger: Logger, makeConnection: @escaping @Sendable () -> NSXPCConnection) {
     self.logger = logger
+    self.makeConnection = makeConnection
+  }
+
+  private static func makeMachServiceConnection(logger: Logger) -> NSXPCConnection {
+    let connection = NSXPCConnection(
+      machServiceName: SummondBundleIdentifiers.agentMachService, options: [])
+    if let teamIdentifier = CodeSigningIdentity.selfTeamIdentifier(logger: logger) {
+      let requirement = XPCClientRequirement.requirementString(
+        teamIdentifier: teamIdentifier,
+        bundleIdentifier: SummondBundleIdentifiers.agent
+      )
+      connection.setCodeSigningRequirement(requirement)
+    } else {
+      logger.warning(
+        "XPC agent code-signing requirement skipped because client has no team identifier")
+    }
+    return connection
   }
 
   public func status() async throws -> AgentStatus {
@@ -91,7 +113,7 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
         return connection
       }
 
-      let newConnection = NSXPCConnection(machServiceName: Self.machServiceName, options: [])
+      let newConnection = makeConnection()
       newConnection.remoteObjectInterface = NSXPCInterface(with: SummondAgentXPC.self)
       newConnection.interruptionHandler = { [weak self] in
         self?.failInFlightCalls { operation in
@@ -104,16 +126,6 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
           XPCBridgeError.connectionInvalidated(operation: operation)
         }
         self?.clearConnection()
-      }
-      if let teamIdentifier = CodeSigningIdentity.selfTeamIdentifier(logger: logger) {
-        let requirement = XPCClientRequirement.requirementString(
-          teamIdentifier: teamIdentifier,
-          bundleIdentifier: SummondBundleIdentifiers.agent
-        )
-        newConnection.setCodeSigningRequirement(requirement)
-      } else {
-        logger.warning(
-          "XPC agent code-signing requirement skipped because client has no team identifier")
       }
       newConnection.resume()
       connection = newConnection

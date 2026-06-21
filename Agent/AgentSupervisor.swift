@@ -1,7 +1,7 @@
 @preconcurrency import ApplicationServices
 import Foundation
-import SummondCore
 import OSLog
+import SummondCore
 
 @MainActor
 final class AgentSupervisor {

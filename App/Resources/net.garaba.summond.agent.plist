@@ -6,7 +6,7 @@
   <key>Label</key>
   <string>net.garaba.summond.agent</string>
   <key>BundleProgram</key>
-  <string>Contents/Resources/SummondAgent.app/Contents/MacOS/SummondAgent</string>
+  <string>Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent</string>
   <key>RunAtLoad</key>
   <true/>
   <key>LimitLoadToSessionType</key>

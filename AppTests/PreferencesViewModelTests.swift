@@ -108,6 +108,33 @@ struct PreferencesViewModelTests {
     #expect(store.savedConfigurations.count == 3)
   }
 
+  @Test("Re-opening the editor preserves an in-progress draft instead of discarding it")
+  func reopeningEditorPreservesDraft() throws {
+    let model = PreferencesViewModel(
+      store: MockConfigurationStore(loadResult: .fresh(.empty)),
+      agentClient: MockAgentClient(),
+      appCatalog: MockAppCatalog()
+    )
+
+    model.beginAdding()
+    model.editorDraft?.shortcut = ShortcutDraft(key: "a", mods: ["cmd"])
+    model.editorDraft?.bundleID = "com.apple.Safari"
+    let presentationID = model.editorPresentationID
+
+    model.beginAdding()
+    #expect(model.editorDraft?.shortcut.key == "a")
+    #expect(model.editorDraft?.bundleID == "com.apple.Safari")
+    #expect(model.editorPresentationID != presentationID)
+
+    let existing = StoredBinding(
+      shortcut: Shortcut(key: "f", mods: ["cmd"]),
+      target: try AppTarget(bundleID: "com.apple.Terminal", mode: .launch)
+    )
+    model.beginEditing(existing)
+    #expect(model.editorDraft?.shortcut.key == "a")
+    #expect(model.editorDraft?.bundleID == "com.apple.Safari")
+  }
+
   @Test("Duplicate shortcut validation names the conflicting binding")
   func duplicateShortcutValidationNamesConflict() throws {
     let existing = StoredBinding(

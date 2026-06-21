@@ -42,6 +42,7 @@ struct BindingListView: View {
             selection = binding.id
             model.beginEditing(binding)
           }
+          .accessibilityIdentifier("bindingRow.edit")
           Button("Delete", role: .destructive) {
             Task {
               await model.deleteBinding(id: binding.id)

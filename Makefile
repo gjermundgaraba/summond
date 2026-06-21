@@ -1,4 +1,4 @@
-.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart tart-ensure-base lint lint-fix release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix release-local release-build release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
@@ -19,6 +19,7 @@ help:
 		'  make app-test       Run Xcode app unit tests' \
 		'  make ui-test        Run XCUITest UI tests (drives a real GUI; intended for the Tart VM)' \
 		'  make test-tart      Run unit + UI tests in a clean disposable Tart VM' \
+		'  make smoke-tart     Unattended launchctl + XPC smoke in a Tart VM' \
 		'  make tart-ensure-base  Create the reusable Tart base VM if missing' \
 		'  make lint           Run swift-format lint' \
 		'  make lint-fix       Apply swift-format formatting' \
@@ -56,11 +57,14 @@ ui-test: project
 test-tart:
 	scripts/tart-test.sh "$(BASE_VM)"
 
+smoke-tart:
+	scripts/tart-test.sh "$(BASE_VM)" smoke
+
 tart-ensure-base:
 	scripts/tart-ensure-base.sh "$(BASE_VM)"
 
 lint:
-	xcrun swift format lint --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
+	xcrun swift format lint --strict --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
 
 lint-fix:
 	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status UITests

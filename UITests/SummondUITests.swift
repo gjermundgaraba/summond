@@ -107,9 +107,18 @@ final class SummondUITests: XCTestCase {
   /// Editing an existing binding's open-mode persists and re-renders the row.
   func testEditChangesOpenMode() {
     let app = launch(seed: "one")  // Safari, Launch mode
-    let safari = app.staticTexts["Safari"]
-    XCTAssertTrue(safari.waitForExistence(timeout: launchTimeout))
-    safari.doubleClick()  // the row's double-tap gesture begins editing
+
+    // Open the editor via the row's context-menu Edit. The row also supports
+    // double-click-to-edit, but XCUITest's synthesized double-click does not
+    // reliably register as clickCount == 2 for the local mouse monitor that
+    // drives it, so the context menu is the deterministic trigger here.
+    let safariCell = app.cells.containing(.staticText, identifier: "bindingRow.com.apple.Safari")
+      .firstMatch
+    XCTAssertTrue(safariCell.waitForExistence(timeout: launchTimeout), "Safari row not found")
+    safariCell.rightClick()
+    let editItem = app.menuItems["bindingRow.edit"].firstMatch
+    XCTAssertTrue(editItem.waitForExistence(timeout: uiTimeout), "Edit menu item not shown")
+    editItem.click()
 
     let modePicker = app.descendants(matching: .any)["editor.modePicker"]
     XCTAssertTrue(modePicker.waitForExistence(timeout: uiTimeout), "Editor did not open for edit")

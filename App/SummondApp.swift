@@ -1,9 +1,13 @@
 import AppKit
-import SummondCore
 import OSLog
+import SummondCore
 import SwiftUI
 
-@main
+// In a SMOKE_TEST build the process entry point is `SmokeTest` (see
+// SmokeTest.swift), so `SummondApp` is compiled but not the `@main` type.
+#if !SMOKE_TEST
+  @main
+#endif
 struct SummondApp: App {
   @State private var serviceManager: ServiceManager
   @State private var preferencesModel: PreferencesViewModel
