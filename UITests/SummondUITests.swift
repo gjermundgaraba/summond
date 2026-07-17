@@ -68,7 +68,7 @@ final class SummondUITests: XCTestCase {
     XCTAssertTrue(app.buttons["toolbar.addShortcut"].waitForExistence(timeout: launchTimeout))
 
     app.buttons["toolbar.addShortcut"].click()
-    recordCommandShortcut(app, key: "j", expected: "⌘J")
+    recordCommandShortcut(app, key: "j", expectedAccessibilityValue: "Command J")
     selectAppInPicker(app, bundleID: "com.apple.Safari")
 
     let save = app.buttons["editor.saveButton"]
@@ -79,7 +79,9 @@ final class SummondUITests: XCTestCase {
     let safariRow = shortcutRow(app, bundleID: "com.apple.Safari")
     XCTAssertTrue(
       safariRow.waitForExistence(timeout: uiTimeout), "Saved shortcut row was not shown")
-    XCTAssertTrue(safariRow.label.contains("Safari"), "Saved row did not identify Safari")
+    XCTAssertTrue(
+      (safariRow.value as? String)?.contains("Safari") == true,
+      "Saved row did not identify Safari")
   }
 
   // MARK: - Validation
@@ -134,7 +136,7 @@ final class SummondUITests: XCTestCase {
     XCTAssertTrue(
       waitForDisappearance(behaviorPicker, timeout: uiTimeout), "Editor did not close after Save")
     XCTAssertTrue(
-      waitForLabelContaining(safariRow, "Move Here", timeout: uiTimeout),
+      waitForValueContaining(safariRow, "Move Here", timeout: uiTimeout),
       "Row did not reflect the new Move mode")
   }
 
@@ -371,7 +373,11 @@ final class SummondUITests: XCTestCase {
   /// Records a Command+<key> shortcut by clicking the recorder and synthesizing
   /// the real key event through `ShortcutRecorderNSView`. Retries because the
   /// click -> first-responder -> isRecording state hop is asynchronous.
-  private func recordCommandShortcut(_ app: XCUIApplication, key: String, expected: String) {
+  private func recordCommandShortcut(
+    _ app: XCUIApplication,
+    key: String,
+    expectedAccessibilityValue: String
+  ) {
     let recorder = app.buttons["editor.shortcutRecorder"].firstMatch
     XCTAssertTrue(recorder.waitForExistence(timeout: uiTimeout), "Shortcut recorder not found")
 
@@ -380,15 +386,18 @@ final class SummondUITests: XCTestCase {
     // synthesizing the key; retry in case the key lands too early or recording
     // was cancelled.
     for _ in 0..<8 {
-      if (recorder.value as? String) == expected {
+      if (recorder.value as? String) == expectedAccessibilityValue {
         return
       }
       recorder.click()
       _ = waitForValue(recorder, "recording", timeout: 3)
       app.typeKey(key, modifierFlags: .command)
-      _ = waitForValue(recorder, expected, timeout: 2)
+      _ = waitForValue(recorder, expectedAccessibilityValue, timeout: 2)
     }
-    XCTAssertEqual(recorder.value as? String, expected, "Recorder did not capture \(expected)")
+    XCTAssertEqual(
+      recorder.value as? String,
+      expectedAccessibilityValue,
+      "Recorder did not capture \(expectedAccessibilityValue)")
   }
 
   private func selectAppInPicker(_ app: XCUIApplication, bundleID: String) {
@@ -407,7 +416,7 @@ final class SummondUITests: XCTestCase {
       return app.descendants(matching: .any)["missing-test-app"]
     }
     return app.descendants(matching: .any).matching(
-      NSPredicate(format: "label BEGINSWITH %@", "\(appName),")
+      NSPredicate(format: "value BEGINSWITH %@", "\(appName),")
     ).firstMatch
   }
 
@@ -429,12 +438,12 @@ final class SummondUITests: XCTestCase {
     ).firstMatch
   }
 
-  private func waitForLabelContaining(
+  private func waitForValueContaining(
     _ element: XCUIElement,
     _ text: String,
     timeout: TimeInterval
   ) -> Bool {
-    let predicate = NSPredicate(format: "label CONTAINS %@", text)
+    let predicate = NSPredicate(format: "value CONTAINS %@", text)
     let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }

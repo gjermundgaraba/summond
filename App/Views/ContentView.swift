@@ -393,6 +393,7 @@ private struct NoticeBanner: View {
     }
     .padding(12)
     .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+    .accessibilityElement(children: .contain)
   }
 }
 
