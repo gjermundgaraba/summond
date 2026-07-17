@@ -2,99 +2,162 @@ import SummondCore
 import SwiftUI
 
 struct SettingsView: View {
-  var serviceManager: ServiceManager
-  var preferencesModel: PreferencesViewModel
+  var model: SummondModel
+
+  @Environment(\.openURL) private var openURL
+  @State private var confirmsServiceDisable = false
 
   var body: some View {
+    TabView {
+      generalTab
+        .tabItem {
+          Label("General", systemImage: "gearshape")
+        }
+
+      diagnosticsTab
+        .tabItem {
+          Label("Diagnostics", systemImage: "stethoscope")
+        }
+    }
+    .frame(width: 560, height: 470)
+    .scenePadding()
+    .task {
+      await model.refresh()
+    }
+    .alert("Disable Background Service?", isPresented: $confirmsServiceDisable) {
+      Button("Cancel", role: .cancel) {}
+      Button("Disable", role: .destructive) {
+        Task { await model.disableService() }
+      }
+    } message: {
+      Text("Global shortcuts will stop working until you enable the service again.")
+    }
+  }
+
+  private var generalTab: some View {
     Form {
-      Section("General") {
+      Section("Shortcuts") {
         Toggle(
           "Verbose logging",
           isOn: Binding(
-            get: { preferencesModel.draft.verboseLogging },
+            get: { model.configuration.verboseLogging },
             set: { isEnabled in
-              Task {
-                await preferencesModel.setVerboseLogging(isEnabled)
-              }
+              Task { await model.setVerboseLogging(isEnabled) }
             }
           )
         )
-        .disabled(preferencesModel.isSaving)
+        .disabled(model.isSaving)
         .accessibilityIdentifier("settings.verboseLogging")
 
+        Text("Records additional shortcut and window-matching details for troubleshooting.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Section("Menu Bar") {
         Toggle(
           "Show menu bar icon",
           isOn: Binding(
-            get: { serviceManager.isStatusItemShown },
+            get: { model.isStatusItemShown },
             set: { isShown in
-              Task {
-                await serviceManager.setStatusItemShown(isShown)
-              }
+              Task { await model.setStatusItemShown(isShown) }
             }
           )
         )
-        .disabled(serviceManager.isStatusItemBusy)
+        .disabled(model.isStatusItemBusy)
+
+        if model.isStatusItemBusy {
+          HStack(spacing: 8) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Updating menu bar…")
+              .foregroundStyle(.secondary)
+          }
+        } else if let error = model.statusItemError {
+          Label(error, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+        } else if model.statusItemStatus == .requiresApproval {
+          Text("Approve Summond in System Settings, General, Login Items.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
       }
 
-      Section("Advanced") {
-        LabeledContent("Background service", value: serviceManager.servicePresentation.title)
-        if serviceManager.serviceStatus == .requiresApproval {
-          Button("Open Login Items") {
-            serviceManager.openLoginItemsSettings()
+      Section("Setup") {
+        LabeledContent("Background service", value: model.servicePresentation.title)
+
+        Button("Open Setup Assistant…") {
+          if let url = URL(string: "summond://setup") {
+            openURL(url)
           }
         }
 
-        Button("Re-run Setup") {
-          serviceManager.requestOnboarding()
-        }
-
-        Button("Disable Background Service", role: .destructive) {
-          Task {
-            await serviceManager.unregister()
+        if model.serviceStatus == .requiresApproval {
+          Button("Open Login Items…") {
+            model.openLoginItemsSettings()
           }
         }
-        .disabled(!serviceManager.servicePresentation.canUnregister || serviceManager.isServiceBusy)
       }
+    }
+    .formStyle(.grouped)
+  }
 
-      Section("Diagnostics") {
+  private var diagnosticsTab: some View {
+    Form {
+      Section("System Health") {
+        LabeledContent("Status") {
+          Label(model.health.settingsTitle, systemImage: model.health.settingsSymbol)
+            .foregroundStyle(model.health.settingsColor)
+        }
+
+        if let detail = model.health.settingsDetail {
+          Text(detail)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+
         Button("Refresh Status") {
-          Task {
-            await serviceManager.refresh()
-          }
+          Task { await model.refresh() }
         }
+      }
 
-        if let status = serviceManager.agentStatus {
-          LabeledContent("Agent version", value: status.agentVersion)
+      Section("Agent") {
+        if let status = model.agentStatus {
+          LabeledContent("Version", value: status.agentVersion)
           LabeledContent(
             "Accessibility", value: status.accessibilityGranted ? "Granted" : "Missing")
           LabeledContent(
             "Input Monitoring", value: status.inputMonitoringGranted ? "Granted" : "Missing")
           LabeledContent("Shortcut listener", value: status.tapActive ? "Active" : "Inactive")
+          LabeledContent("Configuration", value: status.configState.settingsTitle)
+          LabeledContent("Shortcuts", value: "\(status.bindingCount)")
+
           if let reason = status.tapFailureReason {
-            LabeledContent("Listener issue", value: eventTapFailureDescription(reason))
+            LabeledContent("Listener issue", value: reason.settingsTitle)
           }
-          LabeledContent("Configuration", value: status.configState.rawValue)
-          LabeledContent("Bindings", value: "\(status.bindingCount)")
 
           if !status.unresolvedBundleIDs.isEmpty {
-            LabeledContent("Unresolved apps") {
+            LabeledContent("Apps not installed") {
               Text(status.unresolvedBundleIDs.joined(separator: "\n"))
                 .textSelection(.enabled)
             }
           }
 
           if let error = status.lastReloadError {
-            LabeledContent("Last reload error") {
+            LabeledContent("Agent reload error") {
               Text(error)
                 .textSelection(.enabled)
             }
           }
         } else {
-          Text("Agent status unavailable")
+          Text("Agent status is unavailable.")
             .foregroundStyle(.secondary)
         }
 
-        if let error = serviceManager.lastError {
+        if let error = model.serviceError {
           LabeledContent("Service error") {
             Text(error)
               .foregroundStyle(.red)
@@ -102,37 +165,123 @@ struct SettingsView: View {
           }
         }
 
-        if let error = serviceManager.lastStatusItemError {
-          LabeledContent("Menu bar error") {
+        if let error = model.reloadError {
+          LabeledContent("Reload error") {
             Text(error)
               .foregroundStyle(.red)
               .textSelection(.enabled)
           }
+
+          Button("Retry Reload") {
+            Task { await model.retryReload() }
+          }
         }
+      }
+
+      Section {
+        Button("Disable Background Service…", role: .destructive) {
+          confirmsServiceDisable = true
+        }
+        .disabled(!model.servicePresentation.canUnregister || model.isServiceBusy)
+      } footer: {
+        Text("Disabling the service stops every global shortcut.")
       }
     }
     .formStyle(.grouped)
-    .frame(width: 520)
-    .scenePadding()
-    .task {
-      await serviceManager.refresh()
+  }
+}
+
+extension SystemHealth {
+  fileprivate var settingsTitle: String {
+    switch self {
+    case .ready:
+      "Ready"
+    case .setupRequired:
+      "Setup Required"
+    case .degraded:
+      "Needs Attention"
     }
   }
 
-  private func eventTapFailureDescription(_ reason: EventTapFailureReason) -> String {
-    switch reason {
-    case .accessibilityDenied:
-      "Accessibility missing"
-    case .inputMonitoringDenied:
-      "Input Monitoring missing"
-    case .installationFailed:
-      "Unavailable"
-    case .disabledByTimeout:
-      "Timed out"
-    case .disabledByUserInput:
-      "Disabled by user input"
-    case .restartLoopDetected:
-      "Paused (restart loop)"
+  fileprivate var settingsSymbol: String {
+    switch self {
+    case .ready: "checkmark.circle.fill"
+    case .setupRequired: "gearshape.2.fill"
+    case .degraded: "exclamationmark.triangle.fill"
+    }
+  }
+
+  fileprivate var settingsColor: Color {
+    switch self {
+    case .ready: .green
+    case .setupRequired: .orange
+    case .degraded: .orange
+    }
+  }
+
+  fileprivate var settingsDetail: String? {
+    switch self {
+    case .ready(let activeShortcuts):
+      let noun = activeShortcuts == 1 ? "shortcut is" : "shortcuts are"
+      return "\(activeShortcuts) \(noun) active."
+    case .setupRequired(let requirement):
+      switch requirement {
+      case .backgroundServiceApprovalRequired:
+        return "Approve Summond in Login Items."
+      case .backgroundServiceNotRegistered:
+        return "The background service is disabled."
+      case .backgroundServiceNotFound:
+        return "The background service could not be found."
+      case .accessibilityPermission:
+        return "Accessibility permission is required."
+      case .inputMonitoringPermission:
+        return "Input Monitoring permission is required."
+      }
+    case .degraded(let issue):
+      switch issue {
+      case .agentUnavailable:
+        return "The background agent is not responding."
+      case .configurationUnavailable(let details):
+        return details
+      case .configurationCorrupt(let details):
+        return details ?? "The saved configuration could not be read."
+      case .configurationInvalid(let details):
+        return details ?? "The saved configuration is invalid."
+      case .unresolvedApplications(let bundleIDs):
+        let count = bundleIDs.count
+        let noun = count == 1 ? "application is" : "applications are"
+        return "\(count) configured \(noun) not installed."
+      case .eventTapFailure(let reason):
+        return reason.settingsTitle
+      case .eventTapInactive:
+        return "The global shortcut listener is inactive."
+      case .reloadFailed(let details):
+        return details
+      }
+    }
+  }
+}
+
+extension AgentConfigurationState {
+  fileprivate var settingsTitle: String {
+    switch self {
+    case .ok: "Ready"
+    case .fresh: "New"
+    case .corrupt: "Corrupt"
+    case .invalid: "Invalid"
+    }
+  }
+}
+
+extension EventTapFailureReason {
+  fileprivate var settingsTitle: String {
+    switch self {
+    case .accessibilityDenied: "Accessibility permission is missing."
+    case .inputMonitoringDenied: "Input Monitoring permission is missing."
+    case .installationFailed: "The shortcut listener could not start."
+    case .disabledByTimeout: "The shortcut listener timed out."
+    case .disabledByUserInput: "macOS disabled the shortcut listener."
+    case .restartLoopDetected: "The shortcut listener paused after repeated restarts."
     }
   }
 }

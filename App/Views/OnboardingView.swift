@@ -1,231 +1,142 @@
 import SummondCore
 import SwiftUI
 
-struct OnboardingView: View {
-  var serviceManager: ServiceManager
-  @Binding var hasCompletedOnboarding: Bool
+struct SetupAssistantView: View {
+  var model: SummondModel
   var showsFirstShortcutAction: Bool
+  var onDismiss: () -> Void
   var onAddFirstShortcut: () -> Void
-  @Environment(\.dismiss) private var dismiss
-  @State private var step: OnboardingStep = .welcome
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 22) {
-        ProgressView(value: Double(step.rawValue), total: Double(OnboardingStep.done.rawValue))
-          .controlSize(.small)
+    VStack(alignment: .leading, spacing: 0) {
+      header
 
-        Group {
-          switch step {
-          case .welcome:
-            welcomeStep
-          case .backgroundService:
-            backgroundServiceStep
-          case .accessibility:
-            accessibilityStep
-          case .inputMonitoring:
-            inputMonitoringStep
-          case .done:
-            doneStep
-          }
-        }
-        .frame(maxWidth: .infinity, minHeight: 330, alignment: .topLeading)
+      VStack(spacing: 12) {
+        backgroundServiceRow
+        permissionRow(
+          title: "Accessibility",
+          explanation: "Allows Summond to direct application windows.",
+          systemImage: "hand.raised.fill",
+          isGranted: accessibilityGranted,
+          actionTitle: "Open Settings…",
+          action: model.requestAccessibilitySetup,
+          accessibilityIdentifier: "setup.openAccessibilitySettingsButton"
+        )
+        permissionRow(
+          title: "Input Monitoring",
+          explanation: "Allows Summond to receive your global shortcuts.",
+          systemImage: "keyboard.badge.eye",
+          isGranted: inputMonitoringGranted,
+          actionTitle: "Open Settings…",
+          action: model.requestInputMonitoringSetup,
+          accessibilityIdentifier: "setup.openInputMonitoringSettingsButton"
+        )
       }
-      .padding(28)
-      .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-    .task {
-      if hasCompletedOnboarding, let unmetStep = serviceManager.setupState.firstUnmetOnboardingStep
-      {
-        step = unmetStep
-      }
-      await serviceManager.refresh()
-      advanceIfReady()
+      .padding(.horizontal, 28)
+      .padding(.bottom, 24)
 
-      while !Task.isCancelled {
-        do {
-          try await Task.sleep(nanoseconds: 1_000_000_000)
-        } catch {
-          return
-        }
-        guard !Task.isCancelled else { return }
-        await serviceManager.refresh()
-        guard !Task.isCancelled else { return }
-        advanceIfReady()
-      }
+      Divider()
+
+      footer
+        .padding(20)
     }
+    .frame(width: 600)
+    .fixedSize(horizontal: false, vertical: true)
   }
 
-  private var welcomeStep: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      stepIcon("keyboard.badge.eye")
-      Text("Welcome to Summond")
-        .font(.title.weight(.semibold))
-      Text(
-        "A small background agent turns global keyboard shortcuts into app actions. macOS needs two approvals before it can listen for those shortcuts."
-      )
-      .foregroundStyle(.secondary)
-      Spacer()
-      Button("Get Started") {
-        step = .backgroundService
-        advanceIfReady()
+  private var header: some View {
+    HStack(alignment: .top, spacing: 18) {
+      Image(systemName: setupRequirementsComplete ? "checkmark.circle.fill" : "keyboard.badge.eye")
+        .font(.system(size: 42, weight: .semibold))
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(setupRequirementsComplete ? Color.green : Color.accentColor)
+        .contentTransition(.symbolEffect(.replace))
+
+      VStack(alignment: .leading, spacing: 6) {
+        Text(setupRequirementsComplete ? "Setup complete" : "Set up Summond")
+          .font(.title.weight(.semibold))
+        Text(
+          setupRequirementsComplete
+            ? "Summond has the macOS access it needs."
+            : "Complete these three macOS requirements to use global shortcuts."
+        )
+        .foregroundStyle(.secondary)
       }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-      .accessibilityIdentifier("onboarding.getStartedButton")
     }
+    .padding(28)
   }
 
-  private var backgroundServiceStep: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      stepIcon(serviceManager.setupState.serviceReady ? "checkmark.circle.fill" : "gear.badge")
-        .foregroundStyle(serviceManager.setupState.serviceReady ? .green : .accentColor)
-      Text("Background Service")
-        .font(.title2.weight(.semibold))
-
-      switch serviceManager.serviceStatus {
+  private var backgroundServiceRow: some View {
+    SetupChecklistRow(
+      title: "Background Service",
+      explanation: backgroundServiceExplanation,
+      systemImage: "gearshape.2.fill",
+      state: backgroundServiceState
+    ) {
+      switch model.serviceStatus {
       case .enabled:
-        if serviceManager.setupState.agentReachable {
-          Label("The background service is enabled.", systemImage: "checkmark.circle.fill")
-            .foregroundStyle(.green)
-        } else {
-          Text("The background service is enabled, but Summond can't reach its agent.")
-            .foregroundStyle(.secondary)
-          if let error = serviceManager.lastError {
-            Text(error)
-              .font(.callout)
-              .foregroundStyle(.red)
-              .textSelection(.enabled)
-          }
+        if model.agentStatus == nil {
           Button("Restart Service") {
-            Task { await serviceManager.restartServiceRegistration() }
+            Task { await model.restartService() }
           }
-          .buttonStyle(.borderedProminent)
-          .disabled(serviceManager.isServiceBusy)
+          .disabled(model.isServiceBusy)
         }
       case .requiresApproval:
-        Text("Approve Summond in Login Items so macOS can start the background agent.")
-          .foregroundStyle(.secondary)
-        Button("Open Login Items") {
-          serviceManager.openLoginItemsSettings()
+        Button("Open Login Items…") {
+          model.openLoginItemsSettings()
         }
-        .buttonStyle(.borderedProminent)
       case .notRegistered, .notFound:
-        if let error = serviceManager.lastRegistrationError {
-          Text("Couldn't register the background service: \(error)")
-            .font(.callout)
-            .foregroundStyle(.red)
-            .textSelection(.enabled)
-        } else {
-          Text("Enable the background service so macOS can run Summond's shortcut agent.")
-            .foregroundStyle(.secondary)
+        Button(model.serviceError == nil ? "Enable Service" : "Try Again") {
+          Task { await model.enableService() }
         }
-
-        Button(serviceManager.lastRegistrationError == nil ? "Enable Service" : "Try Again") {
-          Task { await serviceManager.register() }
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(serviceManager.isServiceBusy)
+        .disabled(model.isServiceBusy)
       }
-
-      Spacer()
     }
   }
 
-  private var accessibilityStep: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      stepIcon(
-        serviceManager.setupState.accessibilityGranted
-          ? "checkmark.circle.fill" : "hand.raised.fill"
-      )
-      .foregroundStyle(serviceManager.setupState.accessibilityGranted ? .green : .accentColor)
-      Text("Accessibility")
-        .font(.title2.weight(.semibold))
-      Text(
-        "Global key interception runs in the background agent. Enable SummondAgent in Privacy & Security, Accessibility."
-      )
-      .foregroundStyle(.secondary)
-
-      if serviceManager.setupState.accessibilityGranted {
-        Label("Accessibility permission is granted.", systemImage: "checkmark.circle.fill")
-          .foregroundStyle(.green)
-      } else {
-        Button("Open Accessibility Settings") {
-          serviceManager.requestAccessibilitySetup()
-        }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("onboarding.openAccessibilitySettingsButton")
-
-        HStack(spacing: 8) {
-          ProgressView()
-            .controlSize(.small)
-          Text("Waiting for permission — this continues automatically once granted.")
-            .foregroundStyle(.secondary)
-        }
-        .padding(.top, 4)
+  private func permissionRow(
+    title: String,
+    explanation: String,
+    systemImage: String,
+    isGranted: Bool,
+    actionTitle: String,
+    action: @escaping () -> Void,
+    accessibilityIdentifier: String
+  ) -> some View {
+    SetupChecklistRow(
+      title: title,
+      explanation: explanation,
+      systemImage: systemImage,
+      state: isGranted ? .complete : .required
+    ) {
+      if !isGranted {
+        Button(actionTitle, action: action)
+          .accessibilityIdentifier(accessibilityIdentifier)
       }
-
-      Spacer()
     }
   }
 
-  private var inputMonitoringStep: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      stepIcon(
-        serviceManager.setupState.inputMonitoringGranted
-          ? "checkmark.circle.fill" : "keyboard.badge.eye"
-      )
-      .foregroundStyle(serviceManager.setupState.inputMonitoringGranted ? .green : .accentColor)
-      Text("Input Monitoring")
-        .font(.title2.weight(.semibold))
-      Text(
-        "macOS also needs Input Monitoring permission for SummondAgent before it can receive global shortcut key presses."
-      )
-      .foregroundStyle(.secondary)
-
-      if serviceManager.setupState.inputMonitoringGranted {
-        Label("Input Monitoring permission is granted.", systemImage: "checkmark.circle.fill")
-          .foregroundStyle(.green)
-      } else {
-        Button("Open Input Monitoring Settings") {
-          serviceManager.requestInputMonitoringSetup()
-        }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("onboarding.openInputMonitoringSettingsButton")
-
-        HStack(spacing: 8) {
-          ProgressView()
-            .controlSize(.small)
-          Text("Waiting for permission — this continues automatically once granted.")
-            .foregroundStyle(.secondary)
-        }
-        .padding(.top, 4)
+  private var footer: some View {
+    HStack {
+      Button("Set Up Later") {
+        onDismiss()
       }
+      .keyboardShortcut(.cancelAction)
+      .accessibilityIdentifier("setup.setUpLaterButton")
 
       Spacer()
-    }
-  }
 
-  private var doneStep: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      stepIcon("checkmark.circle.fill")
-        .foregroundStyle(.green)
-      Text("You're all set")
-        .font(.title.weight(.semibold))
-      Text("Summond is ready to run your shortcuts.")
-        .foregroundStyle(.secondary)
-      Spacer()
-      HStack {
-        Button("Done") {
-          completeAndDismiss(addFirstShortcut: false)
-        }
-        .keyboardShortcut(.cancelAction)
-
-        Spacer()
-
+      if setupRequirementsComplete {
         if showsFirstShortcutAction {
           Button("Add Your First Shortcut") {
-            completeAndDismiss(addFirstShortcut: true)
+            onDismiss()
+            onAddFirstShortcut()
+          }
+          .buttonStyle(.borderedProminent)
+          .keyboardShortcut(.defaultAction)
+        } else {
+          Button("Done") {
+            onDismiss()
           }
           .buttonStyle(.borderedProminent)
           .keyboardShortcut(.defaultAction)
@@ -234,24 +145,100 @@ struct OnboardingView: View {
     }
   }
 
-  private func stepIcon(_ systemName: String) -> some View {
-    Image(systemName: systemName)
-      .font(.system(size: 42, weight: .semibold))
-      .symbolRenderingMode(.hierarchical)
+  private var setupRequirementsComplete: Bool {
+    model.serviceStatus == .enabled
+      && model.agentStatus != nil
+      && accessibilityGranted
+      && inputMonitoringGranted
   }
 
-  private func advanceIfReady() {
-    let resolved = serviceManager.setupState.resolvedStep(from: step)
-    if resolved != step {
-      step = resolved
+  private var accessibilityGranted: Bool {
+    model.agentStatus?.accessibilityGranted == true
+  }
+
+  private var inputMonitoringGranted: Bool {
+    model.agentStatus?.inputMonitoringGranted == true
+  }
+
+  private var backgroundServiceState: SetupChecklistState {
+    guard model.serviceStatus == .enabled else { return .required }
+    return model.agentStatus == nil ? .attention : .complete
+  }
+
+  private var backgroundServiceExplanation: String {
+    switch model.serviceStatus {
+    case .enabled:
+      if model.agentStatus == nil {
+        return model.serviceError ?? "The service is enabled but isn't responding."
+      }
+      return "Runs your shortcuts even when the Summond window is closed."
+    case .requiresApproval:
+      return "Approve Summond in System Settings, General, Login Items."
+    case .notRegistered:
+      return model.serviceError ?? "Enable Summond's background service."
+    case .notFound:
+      return model.serviceError ?? "The background service could not be found."
+    }
+  }
+}
+
+private enum SetupChecklistState {
+  case complete
+  case required
+  case attention
+
+  var icon: String {
+    switch self {
+    case .complete: "checkmark.circle.fill"
+    case .required: "circle"
+    case .attention: "exclamationmark.circle.fill"
     }
   }
 
-  private func completeAndDismiss(addFirstShortcut: Bool) {
-    hasCompletedOnboarding = true
-    dismiss()
-    if addFirstShortcut {
-      onAddFirstShortcut()
+  var color: Color {
+    switch self {
+    case .complete: .green
+    case .required: .secondary
+    case .attention: .orange
     }
+  }
+}
+
+private struct SetupChecklistRow<Actions: View>: View {
+  var title: String
+  var explanation: String
+  var systemImage: String
+  var state: SetupChecklistState
+  @ViewBuilder var actions: () -> Actions
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      Image(systemName: systemImage)
+        .font(.title2)
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(Color.accentColor)
+        .frame(width: 28)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(.headline)
+        Text(explanation)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .textSelection(.enabled)
+      }
+
+      Spacer(minLength: 12)
+      actions()
+
+      Image(systemName: state.icon)
+        .font(.title3)
+        .foregroundStyle(state.color)
+        .contentTransition(.symbolEffect(.replace))
+        .accessibilityLabel(state == .complete ? "Complete" : "Action required")
+    }
+    .padding(16)
+    .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
   }
 }

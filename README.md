@@ -2,7 +2,7 @@
 
 Summond is a macOS app and background agent that summons app windows from a
 global shortcut — it opens, focuses, or moves a target app's windows onto your
-current Space. The preferences app edits shortcuts, the LaunchAgent intercepts
+current Space. Summond edits shortcuts, the LaunchAgent intercepts
 key events, and an optional menu bar item shows agent health.
 
 ## Requirements
@@ -33,12 +33,11 @@ agent runs only in your Aqua login session.
 
 ## Configure Shortcuts
 
-Use the bindings editor in `Summond.app` to add, edit, or delete shortcuts.
-You can pick an installed app, choose a `.app` bundle manually, or paste a
-bundle identifier. The shortcut recorder accepts supported keys with optional
-modifiers. Modifier-less shortcuts are allowed; the app warns before saving
-shortcuts that would shadow normal typing, such as bare or Shift-only literal
-keys.
+Use the shortcuts list in `Summond.app` to add, edit, or delete shortcuts.
+You can search installed apps or choose a `.app` bundle manually. The shortcut
+recorder accepts supported keys with optional modifiers. Function and navigation
+keys may be used without modifiers; literal keys require Command, Option, or
+Control so shortcuts cannot silently shadow normal typing.
 
 Supported modifiers:
 
@@ -51,17 +50,17 @@ Representative supported keys include letters, numbers, function keys
 `f1`-`f20`, arrows, `home`, `end`, `pageup`, `pagedown`, `space`, `tab`,
 `return`, `escape`, `delete`, and common punctuation.
 
-### Open Modes
+### Shortcut Behaviors
 
-`launch` performs a normal app launch or activation.
+**Switch to It** performs a normal app launch or activation.
 
-`new-window` prefers a window on the current Space. If the app is already
+**New Window** prefers a window on the current Space. If the app is already
 running elsewhere, Summond asks the Dock for the app's **New Window** menu item,
 waits for a window on the current Space, and then activates the app. If Dock
 menu access, window creation, or activation fails, the shortcut is still
 consumed and the failure is logged.
 
-`move` brings existing windows to the current Space when possible. It uses
+**Move Here** brings existing windows to the current Space when possible. It uses
 private SkyLight window-server functions because macOS has no public API for
 moving another app's windows between Spaces. On supported macOS 26+ systems,
 this uses the bridged window-management path that works without disabling SIP.
@@ -70,10 +69,11 @@ logged as a non-fatal failure.
 
 ## Menu Bar Item
 
-Enable the menu bar item from the preferences app. It is installed as the
+Enable the menu bar item from Summond. It is installed as the
 bundled login item `SummondStatus.app` and shows agent reachability,
 Accessibility, Input Monitoring, shortcut listener, and configuration state. Its
-menu can open preferences and reload the agent.
+menu opens Summond and offers a contextual recovery action when attention is
+needed.
 
 ## Troubleshooting
 
@@ -147,12 +147,12 @@ base.
 If the base is missing, `scripts/tart-ensure-base.sh` creates it from
 `ghcr.io/cirruslabs/macos-tahoe-xcode:latest` and installs XcodeGen.
 
-The UI suite drives the real views, view models, and persistence (a Debug-only
+The UI suite drives the real views, app model, and persistence (a Debug-only
 harness injects fakes for XPC/SMAppService/catalog/store). SwiftUI scene windows
 do not render under XCUITest in the Tart VM, so the harness hosts the real views
 in AppKit windows; the production *scene* layer is therefore not covered by
 these tests and remains manual-test-only — `WindowGroup`/`Window`/`Settings`
-presentation, the menu commands (⌘N/⌘↩/⌦/⌘R), the `summond://` deep link,
+presentation, the menu commands (⌘N/⌘↩/⌦), the `summond://` deep link,
 window placement/restoration, and `scenePhase` reactivation. `make ui-test`
 refuses to run on a host Mac unless `ALLOW_HOST_UITESTS=1` is set (it drives a
 real GUI); `make test-tart` sets it inside the VM.
@@ -196,9 +196,3 @@ make release
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the bundle layout, XPC boundary,
 storage format, and release signing flow.
-
-## v2 Breaking Changes
-
-Summond v2 is an app plus LaunchAgent, not the old foreground CLI/TOML daemon.
-Configuration now lives as JSON data in the shared defaults suite
-`net.garaba.summond.shared` and is edited through `Summond.app`.

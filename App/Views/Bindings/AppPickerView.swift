@@ -1,107 +1,94 @@
-import AppKit
 import SummondCore
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct AppPickerView: View {
-  var model: PreferencesViewModel
-  @Binding var editorDraft: BindingEditorDraft
+  @Binding var draft: ShortcutEditorDraft
+  let applications: [AppDisplayInfo]
+  let isLoading: Bool
+  var loadApplications: () async -> Void
+  var resolveApplication: (URL) -> AppIdentity?
+
   @State private var searchText = ""
-  @State private var dropError: String?
+  @State private var selection: AppDisplayInfo.ID?
+  @State private var pickerError: String?
+  @State private var choosesOtherApplication = false
+  @FocusState private var isSearchFocused: Bool
 
-  private var selectedInfo: AppDisplayInfo? {
-    editorDraft.bundleID.isEmpty ? nil : model.displayInfo(for: editorDraft.bundleID)
-  }
-
-  private var filteredApps: [AppDisplayInfo] {
-    AppFuzzyMatch.rank(model.installedApplications, searchText)
+  private var filteredApplications: [AppDisplayInfo] {
+    AppFuzzyMatch.rank(applications, searchText)
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 8) {
       HStack {
-        Text("Target App")
+        Text("Application")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.secondary)
         Spacer()
-        Button("Choose App...") {
-          chooseApplication()
+        Button("Choose Other Application…") {
+          choosesOtherApplication = true
         }
+        .controlSize(.small)
       }
 
-      targetWell
+      searchField
 
-      if let dropError {
-        Text(dropError)
+      Group {
+        if isLoading {
+          loadingView
+        } else if filteredApplications.isEmpty {
+          ContentUnavailableView.search(text: searchText)
+        } else {
+          applicationList
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+      if let pickerError {
+        Label(pickerError, systemImage: "exclamationmark.circle")
           .font(.callout)
           .foregroundStyle(.red)
       }
-
-      Group {
-        if model.installedAppsLoading {
-          HStack(spacing: 8) {
-            ProgressView()
-              .controlSize(.small)
-            Text("Loading installed apps...")
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity, minHeight: 150)
-        } else {
-          VStack(spacing: 8) {
-            appSearchField
-
-            ScrollViewReader { proxy in
-              List(filteredApps) { app in
-                Button {
-                  editorDraft.bundleID = app.bundleID
-                } label: {
-                  HStack(spacing: 10) {
-                    AppRowIcon(url: app.url)
-                    VStack(alignment: .leading, spacing: 2) {
-                      Text(app.displayName)
-                        .lineLimit(1)
-                      Text(app.bundleID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                    Spacer()
-                    if app.bundleID == editorDraft.bundleID {
-                      Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.tint)
-                    }
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .accessibilityIdentifier("appRow.\(app.bundleID)")
-              }
-              // Results re-rank on every keystroke, so the list would otherwise
-              // stay scrolled wherever the previous ranking left it and hide the
-              // new best matches. Pin back to the top result on each change.
-              .onChange(of: searchText) { _, _ in
-                guard let topID = filteredApps.first?.id else { return }
-                proxy.scrollTo(topID, anchor: .top)
-              }
-            }
-            .frame(maxHeight: .infinity)
-          }
-        }
-      }
-      .frame(maxHeight: .infinity)
     }
-    .frame(maxHeight: .infinity)
     .task {
-      await model.loadInstalledApplicationsIfNeeded()
+      await loadApplications()
+      selectCurrentApplicationIfVisible()
+      isSearchFocused = true
     }
+    .onChange(of: draft.bundleID) { _, bundleID in
+      selection = bundleID.isEmpty ? nil : bundleID
+    }
+    .onChange(of: filteredApplications.map(\.id)) { _, _ in
+      keepSelectionVisible()
+    }
+    .fileImporter(
+      isPresented: $choosesOtherApplication,
+      allowedContentTypes: [.applicationBundle],
+      allowsMultipleSelection: false,
+      onCompletion: chooseOtherApplication
+    )
   }
 
-  private var appSearchField: some View {
+  private var searchField: some View {
     HStack(spacing: 6) {
       Image(systemName: "magnifyingglass")
         .foregroundStyle(.secondary)
-      TextField("Search apps", text: $searchText)
+
+      TextField("Search installed applications", text: $searchText)
         .textFieldStyle(.plain)
+        .focused($isSearchFocused)
+        .onSubmit(selectHighlightedApplication)
+        .onKeyPress(.downArrow) {
+          moveSelection(by: 1)
+          return .handled
+        }
+        .onKeyPress(.upArrow) {
+          moveSelection(by: -1)
+          return .handled
+        }
         .accessibilityIdentifier("appPicker.search")
+
       if !searchText.isEmpty {
         Button {
           searchText = ""
@@ -118,70 +105,111 @@ struct AppPickerView: View {
     .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
   }
 
-  private var targetWell: some View {
-    HStack(spacing: 12) {
-      AppRowIcon(url: selectedInfo?.url, size: 36)
-      VStack(alignment: .leading, spacing: 3) {
-        Text(selectedInfo?.displayName ?? "Drop an app here")
-          .font(.body.weight(.medium))
-        Text(selectedInfo?.bundleID ?? "Applications only")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-      }
+  private var applicationList: some View {
+    List(filteredApplications, selection: $selection) { app in
+      AppChoiceRow(app: app, isChosen: app.bundleID == draft.bundleID)
+        .tag(app.id)
+        .contentShape(Rectangle())
+    }
+    .listStyle(.bordered(alternatesRowBackgrounds: true))
+    .onChange(of: selection) { _, selectedID in
+      guard
+        let selectedID,
+        let app = filteredApplications.first(where: { $0.id == selectedID })
+      else { return }
+      choose(app)
+    }
+    .onKeyPress(.return) {
+      selectHighlightedApplication()
+      return .handled
+    }
+  }
+
+  private var loadingView: some View {
+    HStack(spacing: 8) {
+      ProgressView()
+        .controlSize(.small)
+      Text("Loading installed applications…")
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  private func choose(_ app: AppDisplayInfo) {
+    pickerError = nil
+    selection = app.id
+    draft.bundleID = app.bundleID
+  }
+
+  private func selectHighlightedApplication() {
+    let app =
+      selection.flatMap { selectedID in
+        filteredApplications.first { $0.id == selectedID }
+      } ?? filteredApplications.first
+    guard let app else { return }
+    choose(app)
+  }
+
+  private func moveSelection(by offset: Int) {
+    guard !filteredApplications.isEmpty else { return }
+    let currentIndex = selection.flatMap { selectedID in
+      filteredApplications.firstIndex { $0.id == selectedID }
+    }
+    let proposedIndex = (currentIndex ?? (offset > 0 ? -1 : 0)) + offset
+    let index = min(max(proposedIndex, 0), filteredApplications.count - 1)
+    choose(filteredApplications[index])
+  }
+
+  private func keepSelectionVisible() {
+    if let selection, filteredApplications.contains(where: { $0.id == selection }) {
+      return
+    }
+    selection =
+      filteredApplications.contains(where: { $0.bundleID == draft.bundleID })
+      ? draft.bundleID
+      : nil
+  }
+
+  private func selectCurrentApplicationIfVisible() {
+    if filteredApplications.contains(where: { $0.bundleID == draft.bundleID }) {
+      selection = draft.bundleID
+    } else {
+      selection = nil
+    }
+  }
+
+  private func chooseOtherApplication(_ result: Result<[URL], any Error>) {
+    guard case .success(let urls) = result, let url = urls.first else { return }
+    guard let identity = resolveApplication(url) else {
+      pickerError = "Choose a valid application."
+      return
+    }
+
+    pickerError = nil
+    draft.bundleID = identity.bundleIdentifier
+    selection = identity.bundleIdentifier
+  }
+}
+
+private struct AppChoiceRow: View {
+  let app: AppDisplayInfo
+  let isChosen: Bool
+
+  var body: some View {
+    HStack(spacing: 10) {
+      AppRowIcon(url: app.url)
+      Text(app.displayName)
+        .lineLimit(1)
       Spacer()
-    }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-    .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
-      guard let provider = providers.first else {
-        return false
+      if isChosen {
+        Image(systemName: "checkmark")
+          .foregroundStyle(.tint)
+          .accessibilityHidden(true)
       }
-
-      provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) {
-        data,
-        _ in
-        guard
-          let data,
-          let url = URL(dataRepresentation: data, relativeTo: nil)
-        else {
-          Task { @MainActor in
-            dropError = "Drop a valid .app bundle."
-          }
-          return
-        }
-
-        Task { @MainActor in
-          applyApplicationURL(url)
-        }
-      }
-      return true
     }
-  }
-
-  private func chooseApplication() {
-    let panel = NSOpenPanel()
-    panel.allowedContentTypes = [.applicationBundle]
-    panel.allowsMultipleSelection = false
-    panel.canChooseDirectories = false
-    panel.canChooseFiles = true
-    panel.resolvesAliases = true
-
-    guard panel.runModal() == .OK, let url = panel.url else {
-      return
-    }
-
-    applyApplicationURL(url)
-  }
-
-  private func applyApplicationURL(_ url: URL) {
-    guard let identity = model.identity(forApplicationURL: url) else {
-      dropError = "Choose a valid .app bundle."
-      return
-    }
-
-    dropError = nil
-    editorDraft.bundleID = identity.bundleIdentifier
+    .padding(.vertical, 2)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(app.displayName)
+    .accessibilityValue(isChosen ? "Selected" : "")
+    .accessibilityIdentifier("appRow.\(app.bundleID)")
   }
 }

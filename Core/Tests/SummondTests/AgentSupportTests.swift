@@ -28,13 +28,13 @@ struct AgentStatusTests {
 
   @Test("Rejects status payloads that omit required fields")
   func rejectsStatusPayloadsMissingRequiredFields() throws {
-    let legacyJSON = """
+    let incompleteJSON = """
       {"agentVersion":"1.0.0","accessibilityGranted":true,"tapActive":true,\
       "configState":"ok","bindingCount":3}
       """
 
     #expect(throws: DecodingError.self) {
-      try AgentStatusCodec.decode(Data(legacyJSON.utf8))
+      try AgentStatusCodec.decode(Data(incompleteJSON.utf8))
     }
   }
 }
@@ -70,195 +70,130 @@ struct ServiceRegistrationStatusTests {
   }
 }
 
-@Suite("Setup state")
-struct SetupStateTests {
-  @Test("Maps hard requirements to first onboarding step")
-  func mapsHardRequirementsToOnboardingSteps() {
-    let healthyAgent = AgentStatus(
-      agentVersion: "test",
-      accessibilityGranted: true,
-      inputMonitoringGranted: true,
-      tapActive: true,
-      configState: .ok,
-      bindingCount: 1,
-      lastReloadError: nil
-    )
-    let inaccessibleAgent = AgentStatus(
-      agentVersion: "test",
-      accessibilityGranted: false,
-      inputMonitoringGranted: false,
-      tapActive: false,
-      tapFailureReason: .accessibilityDenied,
-      configState: .ok,
-      bindingCount: 1,
-      lastReloadError: nil
-    )
-    let noInputMonitoringAgent = AgentStatus(
-      agentVersion: "test",
-      accessibilityGranted: true,
-      inputMonitoringGranted: false,
-      tapActive: false,
-      tapFailureReason: .inputMonitoringDenied,
-      configState: .ok,
-      bindingCount: 1,
-      lastReloadError: nil
-    )
+@Suite("System health")
+struct SystemHealthTests {
+  @Test("Evaluates every agent health outcome in precedence order")
+  func evaluatesAgentOutcomes() {
+    let cases: [(AgentStatus?, SystemHealth)] = [
+      (nil, .degraded(.agentUnavailable)),
+      (
+        status(accessibilityGranted: false, inputMonitoringGranted: false),
+        .setupRequired(.accessibilityPermission)
+      ),
+      (status(inputMonitoringGranted: false), .setupRequired(.inputMonitoringPermission)),
+      (
+        status(configState: .corrupt, lastReloadError: "decode failed"),
+        .degraded(.configurationCorrupt(details: "decode failed"))
+      ),
+      (
+        status(configState: .invalid, lastReloadError: "duplicate shortcut"),
+        .degraded(.configurationInvalid(details: "duplicate shortcut"))
+      ),
+      (
+        status(unresolvedBundleIDs: ["com.example.one", "com.example.two"]),
+        .degraded(
+          .unresolvedApplications(bundleIDs: ["com.example.one", "com.example.two"])
+        )
+      ),
+      (
+        status(tapActive: false, tapFailureReason: .installationFailed),
+        .degraded(.eventTapFailure(.installationFailed))
+      ),
+      (status(tapActive: false), .degraded(.eventTapInactive)),
+      (status(configState: .fresh, bindingCount: 0), .ready(activeShortcuts: 0)),
+      (status(bindingCount: 5), .ready(activeShortcuts: 5)),
+    ]
 
-    #expect(
-      SetupState(serviceStatus: .enabled, agentStatus: healthyAgent)
-        .hardRequirementsSatisfied
-    )
-    #expect(
-      SetupState(serviceStatus: .enabled, agentStatus: healthyAgent)
-        .firstUnmetOnboardingStep == nil
-    )
-    #expect(
-      SetupState(serviceStatus: .enabled, agentStatus: inaccessibleAgent)
-        .firstUnmetOnboardingStep == .accessibility
-    )
-    #expect(
-      SetupState(serviceStatus: .enabled, agentStatus: noInputMonitoringAgent)
-        .firstUnmetOnboardingStep == .inputMonitoring
-    )
-    #expect(
-      SetupState(serviceStatus: .enabled, agentStatus: nil)
-        .firstUnmetOnboardingStep == .backgroundService
-    )
-    #expect(
-      !SetupState(serviceStatus: .enabled, agentStatus: nil)
-        .hardRequirementsSatisfied
-    )
-    #expect(
-      SetupState(serviceStatus: .requiresApproval, agentStatus: nil)
-        .firstUnmetOnboardingStep == .backgroundService
-    )
-    #expect(
-      SetupState(serviceStatus: .notRegistered, agentStatus: nil)
-        .firstUnmetOnboardingStep == .backgroundService
-    )
-    #expect(
-      SetupState(serviceStatus: .notFound, agentStatus: nil)
-        .firstUnmetOnboardingStep == .backgroundService
-    )
-  }
-
-  @Test("Auto-advances onboarding when step requirements become satisfied")
-  func autoAdvancesResolvedSteps() {
-    let setup = SetupState(
-      serviceStatus: .enabled,
-      accessibilityGranted: true,
-      inputMonitoringGranted: true
-    )
-
-    #expect(setup.resolvedStep(from: .welcome) == .welcome)
-    #expect(setup.resolvedStep(from: .backgroundService) == .done)
-    #expect(setup.resolvedStep(from: .accessibility) == .done)
-    #expect(setup.resolvedStep(from: .inputMonitoring) == .done)
-    #expect(setup.resolvedStep(from: .done) == .done)
-
-    let unreachableAgent = SetupState(
-      serviceStatus: .enabled,
-      agentReachable: false,
-      accessibilityGranted: true,
-      inputMonitoringGranted: true
-    )
-    #expect(unreachableAgent.resolvedStep(from: .inputMonitoring) == .backgroundService)
-  }
-}
-
-@Suite("Status item presentation")
-struct StatusItemPresentationTests {
-  @Test("Maps a reachable agent's state matrix to menu presentation")
-  func mapsReachableStateMatrix() {
-    for accessibilityGranted in [true, false] {
-      for inputMonitoringGranted in [true, false] {
-        for configState in [
-          AgentConfigurationState.ok,
-          .corrupt,
-          .invalid,
-        ] {
-          for unresolvedBundleIDs in [[], ["com.example.missing"]] {
-            let agentStatus = AgentStatus(
-              agentVersion: "test",
-              accessibilityGranted: accessibilityGranted,
-              inputMonitoringGranted: inputMonitoringGranted,
-              tapActive: true,
-              configState: configState,
-              bindingCount: 5,
-              lastReloadError: nil,
-              unresolvedBundleIDs: unresolvedBundleIDs
-            )
-
-            let presentation = StatusItemPresentationMapper.presentation(agentStatus: agentStatus)
-
-            // A reachable agent can always reload, regardless of reported state.
-            #expect(presentation.canReload)
-
-            if !accessibilityGranted {
-              #expect(presentation.statusLine == "Needs Accessibility permission")
-              #expect(presentation.showsWarningBadge)
-            } else if !inputMonitoringGranted {
-              #expect(presentation.statusLine == "Needs Input Monitoring")
-              #expect(presentation.showsWarningBadge)
-            } else if configState == .corrupt || configState == .invalid {
-              #expect(presentation.statusLine == "Configuration problem")
-              #expect(presentation.showsWarningBadge)
-            } else if !unresolvedBundleIDs.isEmpty {
-              #expect(presentation.statusLine == "1 app not installed")
-              #expect(presentation.showsWarningBadge)
-            } else {
-              #expect(presentation.statusLine == "Active — 5 shortcuts")
-              #expect(!presentation.showsWarningBadge)
-            }
-          }
-        }
-      }
+    for (status, expected) in cases {
+      #expect(SystemHealth.evaluate(agentStatus: status) == expected)
     }
   }
 
-  @Test("Treats an unreachable agent as not responding rather than disabled")
-  func unreachableAgentIsNotResponding() {
-    let presentation = StatusItemPresentationMapper.presentation(agentStatus: nil)
+  @Test("Evaluates every service registration outcome before agent state")
+  func evaluatesServiceOutcomesFirst() {
+    let unhealthyAgent = status(
+      accessibilityGranted: false,
+      inputMonitoringGranted: false,
+      tapActive: false,
+      tapFailureReason: .restartLoopDetected,
+      configState: .invalid,
+      lastReloadError: "invalid",
+      unresolvedBundleIDs: ["com.example.missing"]
+    )
+    let cases: [(ServiceRegistrationStatus, SystemHealth)] = [
+      (.requiresApproval, .setupRequired(.backgroundServiceApprovalRequired)),
+      (.notRegistered, .setupRequired(.backgroundServiceNotRegistered)),
+      (.notFound, .setupRequired(.backgroundServiceNotFound)),
+      (.enabled, .setupRequired(.accessibilityPermission)),
+    ]
 
-    #expect(presentation.statusLine == "Summond isn't responding")
-    #expect(presentation.showsWarningBadge)
-    #expect(!presentation.canReload)
+    for (serviceStatus, expected) in cases {
+      #expect(
+        SystemHealth.evaluate(serviceStatus: serviceStatus, agentStatus: unhealthyAgent) == expected
+      )
+    }
   }
 
-  @Test("Marks inactive event tap as warning")
-  func marksInactiveEventTapWarning() {
-    let presentation = StatusItemPresentationMapper.presentation(
-      agentStatus: AgentStatus(
-        agentVersion: "test",
-        accessibilityGranted: true,
-        inputMonitoringGranted: true,
-        tapActive: false,
-        tapFailureReason: .installationFailed,
-        configState: .ok,
-        bindingCount: 1,
-        lastReloadError: nil
-      )
+  @Test("Preserves the full precedence chain when later failures coexist")
+  func preservesPrecedence() {
+    let laterFailures = status(
+      accessibilityGranted: false,
+      inputMonitoringGranted: false,
+      tapActive: false,
+      tapFailureReason: .disabledByTimeout,
+      configState: .corrupt,
+      lastReloadError: "corrupt",
+      unresolvedBundleIDs: ["com.example.missing"]
+    )
+    #expect(
+      SystemHealth.evaluate(agentStatus: laterFailures)
+        == .setupRequired(.accessibilityPermission)
     )
 
-    #expect(presentation.statusLine == "Event tap unavailable")
-    #expect(presentation.showsWarningBadge)
+    let afterPermissions = status(
+      tapActive: false,
+      tapFailureReason: .disabledByTimeout,
+      configState: .corrupt,
+      lastReloadError: "corrupt",
+      unresolvedBundleIDs: ["com.example.missing"]
+    )
+    #expect(
+      SystemHealth.evaluate(agentStatus: afterPermissions)
+        == .degraded(.configurationCorrupt(details: "corrupt"))
+    )
+
+    let afterConfiguration = status(
+      tapActive: false,
+      tapFailureReason: .disabledByTimeout,
+      unresolvedBundleIDs: ["com.example.missing"]
+    )
+    #expect(
+      SystemHealth.evaluate(agentStatus: afterConfiguration)
+        == .degraded(.unresolvedApplications(bundleIDs: ["com.example.missing"]))
+    )
   }
 
-  @Test("Uses singular active shortcut copy")
-  func usesSingularActiveShortcutCopy() {
-    let presentation = StatusItemPresentationMapper.presentation(
-      agentStatus: AgentStatus(
-        agentVersion: "test",
-        accessibilityGranted: true,
-        inputMonitoringGranted: true,
-        tapActive: true,
-        configState: .ok,
-        bindingCount: 1,
-        lastReloadError: nil
-      )
+  private func status(
+    accessibilityGranted: Bool = true,
+    inputMonitoringGranted: Bool = true,
+    tapActive: Bool = true,
+    tapFailureReason: EventTapFailureReason? = nil,
+    configState: AgentConfigurationState = .ok,
+    bindingCount: Int = 3,
+    lastReloadError: String? = nil,
+    unresolvedBundleIDs: [String] = []
+  ) -> AgentStatus {
+    AgentStatus(
+      agentVersion: "test",
+      accessibilityGranted: accessibilityGranted,
+      inputMonitoringGranted: inputMonitoringGranted,
+      tapActive: tapActive,
+      tapFailureReason: tapFailureReason,
+      configState: configState,
+      bindingCount: bindingCount,
+      lastReloadError: lastReloadError,
+      unresolvedBundleIDs: unresolvedBundleIDs
     )
-
-    #expect(presentation.statusLine == "Active — 1 shortcut")
   }
 }
 

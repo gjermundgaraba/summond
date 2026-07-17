@@ -6,14 +6,13 @@ struct AppDisplayInfo: Identifiable, Equatable {
   var bundleID: String
   var displayName: String
   var url: URL?
-  var isInstalled: Bool
+  var isInstalled: Bool { url != nil }
 
   static func missing(bundleID: String) -> AppDisplayInfo {
     AppDisplayInfo(
       bundleID: bundleID,
       displayName: bundleID,
-      url: nil,
-      isInstalled: false
+      url: nil
     )
   }
 
@@ -25,13 +24,12 @@ struct AppDisplayInfo: Identifiable, Equatable {
     AppDisplayInfo(
       bundleID: bundleID,
       displayName: displayName,
-      url: url,
-      isInstalled: true
+      url: url
     )
   }
 }
 
-struct BindingEditorDraft: Identifiable, Equatable {
+struct ShortcutEditorDraft: Identifiable, Equatable {
   enum Purpose: Equatable {
     case add
     case edit(UUID)
@@ -77,15 +75,60 @@ struct ShortcutDraft: Equatable {
   }
 }
 
-struct PreferencesBanner: Identifiable, Equatable {
-  enum Tone: Equatable {
-    case info
-    case warning
-    case error
-  }
+struct ShortcutSummary: Equatable {
+  var shortcut: Shortcut
+  var applicationName: String
+}
 
-  var id = UUID()
-  var tone: Tone
-  var title: String
-  var message: String
+enum ShortcutDraftIssue: Equatable {
+  case missingShortcut
+  case unsupportedKey(String)
+  case unsupportedModifiers([String])
+  case unsafePrintableShortcut
+  case missingApplication
+  case duplicate(existing: ShortcutSummary)
+
+  var message: String {
+    switch self {
+    case .missingShortcut:
+      "Record a shortcut."
+    case .unsupportedKey:
+      "That key is not supported by Summond yet."
+    case .unsupportedModifiers(let modifiers):
+      "Unsupported modifier: \(modifiers.joined(separator: ", "))."
+    case .unsafePrintableShortcut:
+      "Printable shortcuts must include Command, Option, or Control."
+    case .missingApplication:
+      "Choose an application."
+    case .duplicate(let existing):
+      "\(ShortcutFormatter.symbols(for: existing.shortcut)) already opens \(existing.applicationName)."
+    }
+  }
+}
+
+enum ShortcutRecordResult: Equatable {
+  case recorded(ShortcutDraft)
+  case unsupportedKey
+
+  var message: String? {
+    switch self {
+    case .recorded:
+      nil
+    case .unsupportedKey:
+      "That key is not supported by Summond yet."
+    }
+  }
+}
+
+enum SaveShortcutResult: Equatable {
+  case saved
+  case savedButReloadFailed(String)
+  case failed(String)
+  case invalid([ShortcutDraftIssue])
+}
+
+enum ConfigurationUpdateResult: Equatable {
+  case saved
+  case savedButReloadFailed(String)
+  case failed(String)
 }

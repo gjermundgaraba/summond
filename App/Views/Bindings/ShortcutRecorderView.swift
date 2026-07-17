@@ -9,7 +9,7 @@ struct ShortcutRecorderView: View {
   @Binding var errorMessage: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @FocusState private var isFocused: Bool
-  var onRecord: (CGKeyCode, CGEventFlags) -> String?
+  var onRecord: (CGKeyCode, CGEventFlags) -> ShortcutRecordResult
 
   var body: some View {
     HStack(spacing: 5) {
@@ -99,6 +99,14 @@ struct ShortcutRecorderView: View {
     .accessibilityAction(.default) {
       startRecording()
     }
+    .accessibilityActions {
+      if !shortcut.isEmpty && !isRecording {
+        Button("Clear Shortcut") {
+          shortcut = .empty
+          errorMessage = nil
+        }
+      }
+    }
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isRecording)
   }
 
@@ -109,7 +117,7 @@ struct ShortcutRecorderView: View {
     guard let shortcut = shortcut.shortcut else {
       return "no shortcut"
     }
-    return ShortcutFormatter.symbols(for: shortcut)
+    return spokenShortcut(shortcut)
   }
 
   private func startRecording() {
@@ -146,7 +154,7 @@ private struct ShortcutRecorderBridge: NSViewRepresentable {
   @Binding var shortcut: ShortcutDraft
   @Binding var isRecording: Bool
   @Binding var errorMessage: String?
-  var onRecord: (CGKeyCode, CGEventFlags) -> String?
+  var onRecord: (CGKeyCode, CGEventFlags) -> ShortcutRecordResult
 
   func makeNSView(context: Context) -> ShortcutRecorderNSView {
     let view = ShortcutRecorderNSView()
@@ -159,13 +167,16 @@ private struct ShortcutRecorderBridge: NSViewRepresentable {
       errorMessage = nil
     }
     view.onRecord = { keyCode, flags in
-      if let message = onRecord(keyCode, flags) {
-        errorMessage = message
-        return false
-      } else {
+      let result = onRecord(keyCode, flags)
+      switch result {
+      case .recorded(let recordedShortcut):
+        shortcut = recordedShortcut
         errorMessage = nil
         isRecording = false
         return true
+      case .unsupportedKey:
+        errorMessage = result.message
+        return false
       }
     }
     return view
@@ -233,7 +244,7 @@ final class ShortcutRecorderNSView: NSView {
   }
 
   // The observer is registered against the view's window and removed in
-  // viewDidMoveToWindow(nil), which SwiftUI triggers when the editor window
+  // viewDidMoveToWindow(nil), which SwiftUI triggers when the editor sheet
   // closes and the view leaves the hierarchy. A nonisolated deinit cannot read
   // the non-Sendable observer token under Swift 6, and the cleanup there would
   // be redundant.

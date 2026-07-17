@@ -1,4 +1,3 @@
-import AppKit
 import OSLog
 import SummondCore
 import SwiftUI
@@ -9,8 +8,7 @@ import SwiftUI
   @main
 #endif
 struct SummondApp: App {
-  @State private var serviceManager: ServiceManager
-  @State private var preferencesModel: PreferencesViewModel
+  @State private var model: SummondModel
 
   #if DEBUG
     @NSApplicationDelegateAdaptor(UITestAppDelegate.self) private var uiTestAppDelegate
@@ -19,101 +17,45 @@ struct SummondApp: App {
   init() {
     #if DEBUG
       if UITestHarness.isActive {
-        let (serviceManager, preferencesModel) = UITestHarness.makeDependencies()
-        _serviceManager = State(initialValue: serviceManager)
-        _preferencesModel = State(initialValue: preferencesModel)
+        _model = State(initialValue: UITestHarness.makeModel())
         return
       }
     #endif
 
-    let agentClient = AgentClient()
-    let store: any ConfigurationStore
-    let storageBanner: PreferencesBanner?
+    let storage: SummondModel.ConfigurationStorage
     if let userDefaultsStore = UserDefaultsConfigurationStore() {
-      store = userDefaultsStore
-      storageBanner = nil
+      storage = .available(userDefaultsStore)
     } else {
-      SummondLoggers.config.fault(
-        "Settings storage unavailable; falling back to in-memory configuration")
-      store = InMemoryConfigurationStore()
-      storageBanner = PreferencesBanner(
-        tone: .error,
-        title: "Settings storage unavailable",
-        message: "Changes won't be saved."
-      )
+      let message = "Changes cannot be saved because settings storage is unavailable."
+      SummondLoggers.config.fault("Settings storage unavailable")
+      storage = .unavailable(message)
     }
-    let serviceManager = ServiceManager(agentClient: agentClient)
-    let preferencesModel = PreferencesViewModel(
-      store: store,
-      agentClient: agentClient,
-      initialBanner: storageBanner
-    )
-    preferencesModel.onAgentStatusReloaded = { [weak serviceManager] status in
-      serviceManager?.acceptReloadedStatus(status)
-    }
-    _serviceManager = State(initialValue: serviceManager)
-    _preferencesModel = State(initialValue: preferencesModel)
+
+    _model = State(
+      initialValue: SummondModel(
+        storage: storage
+      ))
   }
 
   var body: some Scene {
     WindowGroup(id: "preferences") {
-      ContentView(serviceManager: serviceManager, preferencesModel: preferencesModel)
+      ContentView(model: model)
         .frame(minWidth: 760, minHeight: 520)
-        .onOpenURL(perform: handleURL)
     }
-    .handlesExternalEvents(matching: ["preferences"])
+    .handlesExternalEvents(matching: ["preferences", "setup", "settings"])
     .commands {
       SummondShortcutCommands()
     }
 
-    Window("Binding", id: "binding-editor") {
-      BindingEditorWindowRoot(model: preferencesModel)
-    }
-    .windowResizability(.contentMinSize)
-    .defaultWindowPlacement { content, context in
-      let idealSize = content.sizeThatFits(.unspecified)
-      let visibleRect = context.defaultDisplay.visibleRect
-      return WindowPlacement(
-        size: CGSize(
-          width: min(idealSize.width, visibleRect.width),
-          height: min(idealSize.height, visibleRect.height)
-        )
-      )
-    }
-    .restorationBehavior(.disabled)
-    .commandsRemoved()
-
     Settings {
-      SettingsView(serviceManager: serviceManager, preferencesModel: preferencesModel)
+      SettingsView(model: model)
     }
   }
 
-  private func handleURL(_ url: URL) {
-    guard url.scheme == "summond" else {
-      return
-    }
-
-    NSApp.activate()
-    for window in NSApp.windows {
-      if window.identifier?.rawValue == "binding-editor" {
-        continue
-      }
-      window.makeKeyAndOrderFront(nil)
-    }
-
-    switch url.host {
-    case "preferences":
-      Task {
-        await serviceManager.refresh()
-      }
-    default:
-      break
-    }
-  }
 }
 
 private struct SummondShortcutCommands: Commands {
-  @FocusedValue(\.preferencesCommands) private var commands
+  @FocusedValue(\.shortcutCommands) private var commands
 
   var body: some Commands {
     CommandGroup(replacing: .newItem) {
@@ -136,14 +78,6 @@ private struct SummondShortcutCommands: Commands {
       }
       .keyboardShortcut(.delete, modifiers: [])
       .disabled(commands?.canDelete != true)
-
-      Divider()
-
-      Button("Reload Bindings") {
-        commands?.reload()
-      }
-      .keyboardShortcut("r", modifiers: [.command])
-      .disabled(commands?.canReload != true)
     }
   }
 }
