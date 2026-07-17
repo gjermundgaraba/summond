@@ -76,36 +76,25 @@ enum ShortcutFormatter {
 }
 
 extension AppOpenMode {
-  var shortTitle: String {
-    switch self {
-    case .launch:
-      "Launch"
-    case .newWindow:
-      "New Window"
-    case .move:
-      "Move"
-    }
-  }
-
   var title: String {
     switch self {
     case .launch:
-      "Launch or focus"
+      "Switch to It"
     case .newWindow:
-      "New window"
+      "New Window"
     case .move:
-      "Move to current Space"
+      "Move Here"
     }
   }
 
   var description: String {
     switch self {
     case .launch:
-      "Opens the app, or brings its existing window to the front if it's already running."
+      "Switches to the Space where the app's existing windows are."
     case .newWindow:
-      "Opens a fresh window on this Space, even when the app is already running on another Space."
+      "Opens a window on this Space and leaves its other windows where they are."
     case .move:
-      "Pulls the app's existing windows from another Space onto this Space, then focuses it."
+      "Moves the app's existing windows to this Space."
     }
   }
 }

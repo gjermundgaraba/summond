@@ -37,7 +37,7 @@ struct BindingEditorView: View {
 
       footer(validationMessages: messages)
     }
-    .frame(minWidth: 580, idealWidth: 580, minHeight: 560, idealHeight: 660)
+    .frame(minWidth: 580, idealWidth: 580, minHeight: 680, idealHeight: 800)
   }
 
   private var shortcutSection: some View {
@@ -79,37 +79,74 @@ struct BindingEditorView: View {
 
   private var modeSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Open Mode")
+      Text("Window Behavior")
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
 
-      Picker("Open Mode", selection: $editorDraft.mode) {
+      Text(
+        "Summond launches the app if needed. When it's already open on another Space:"
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+
+      VStack(spacing: 8) {
         ForEach(AppOpenMode.allCases, id: \.self) { mode in
-          Text(mode.shortTitle).tag(mode)
+          modeChoice(mode)
         }
       }
-      .labelsHidden()
-      .pickerStyle(.segmented)
-      .accessibilityIdentifier("editor.modePicker")
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Window Behavior")
+      .accessibilityIdentifier("editor.modeChoices")
+    }
+  }
 
-      HStack(spacing: 14) {
-        SpacesAnimationView(mode: editorDraft.mode)
-          .frame(width: 170, height: 76)
+  private func modeChoice(_ mode: AppOpenMode) -> some View {
+    let isSelected = editorDraft.mode == mode
+
+    return Button {
+      editorDraft.mode = mode
+    } label: {
+      HStack(spacing: 12) {
+        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+          .font(.system(size: 15))
+          .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+          .accessibilityHidden(true)
 
         VStack(alignment: .leading, spacing: 4) {
-          Text(editorDraft.mode.title)
-            .font(.headline)
-          Text(editorDraft.mode.description)
-            .font(.callout)
+          Text(mode.title)
+            .font(.body.weight(.semibold))
+          Text(mode.description)
+            .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
+
         Spacer(minLength: 0)
+
+        SpacesAnimationView(mode: mode)
+          .frame(width: 170, height: 76)
       }
-      .padding(12)
-      .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
-      .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .background(
+      isSelected ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.06),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(
+          isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
+          lineWidth: isSelected ? 1.5 : 1
+        )
+    }
+    .accessibilityLabel(mode.title)
+    .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    .accessibilityHint(mode.description)
+    .accessibilityIdentifier("editor.mode.\(mode.rawValue)")
   }
 
   private func footer(validationMessages: [String]) -> some View {
@@ -172,7 +209,7 @@ struct BindingEditorWindowRoot: View {
         .navigationTitle(draft.editingID == nil ? "Add Binding" : "Edit Binding")
       } else {
         Color.clear
-          .frame(minWidth: 580, idealWidth: 580, minHeight: 560, idealHeight: 660)
+          .frame(minWidth: 580, idealWidth: 580, minHeight: 680, idealHeight: 800)
       }
     }
     .onDisappear {

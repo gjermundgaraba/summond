@@ -106,7 +106,7 @@ final class SummondUITests: XCTestCase {
 
   /// Editing an existing binding's open-mode persists and re-renders the row.
   func testEditChangesOpenMode() {
-    let app = launch(seed: "one")  // Safari, Launch mode
+    let app = launch(seed: "one")  // Safari, Switch to It mode
 
     // Open the editor via the row's context-menu Edit. The row also supports
     // double-click-to-edit, but XCUITest's synthesized double-click does not
@@ -120,19 +120,20 @@ final class SummondUITests: XCTestCase {
     XCTAssertTrue(editItem.waitForExistence(timeout: uiTimeout), "Edit menu item not shown")
     editItem.click()
 
-    let modePicker = app.descendants(matching: .any)["editor.modePicker"]
-    XCTAssertTrue(modePicker.waitForExistence(timeout: uiTimeout), "Editor did not open for edit")
+    let modeChoices = app.descendants(matching: .any)["editor.modeChoices"]
+    XCTAssertTrue(
+      modeChoices.waitForExistence(timeout: uiTimeout), "Editor did not open for edit")
 
-    modeSegment(app, "Move").click()
+    app.buttons["editor.mode.move"].click()
     app.buttons["editor.saveButton"].click()
 
     // The editor also renders the mode title, so first prove the editor closed —
     // which only happens on a successful persist — before asserting the row
     // updated; otherwise the assertion could match the still-open editor's label.
     XCTAssertTrue(
-      waitForDisappearance(modePicker, timeout: uiTimeout), "Editor did not close after Save")
+      waitForDisappearance(modeChoices, timeout: uiTimeout), "Editor did not close after Save")
     XCTAssertTrue(
-      staticTextContaining(app, "Move to current Space").waitForExistence(timeout: uiTimeout),
+      staticTextContaining(app, "Move Here").waitForExistence(timeout: uiTimeout),
       "Row did not reflect the new Move mode")
   }
 
@@ -289,6 +290,9 @@ final class SummondUITests: XCTestCase {
     XCTAssertFalse(
       completionTitle.waitForExistence(timeout: 3),
       "Onboarding completion sheet should stay dismissed after Done")
+    XCTAssertFalse(
+      staticTextContaining(app, "Setup needed").waitForExistence(timeout: 3),
+      "Setup banner should not return after completed onboarding is dismissed")
   }
 
   // MARK: - Real-store persistence across relaunch
@@ -408,20 +412,6 @@ final class SummondUITests: XCTestCase {
     let row = app.buttons["appRow.\(bundleID)"]
     XCTAssertTrue(row.waitForExistence(timeout: uiTimeout), "App \(bundleID) not in picker")
     row.click()
-  }
-
-  /// Resolves a segmented-control segment by its visible label across the element
-  /// types macOS may expose it as (radio button, button, or segmented-control button).
-  private func modeSegment(_ app: XCUIApplication, _ label: String) -> XCUIElement {
-    let radio = app.radioButtons[label]
-    if radio.waitForExistence(timeout: 5) {
-      return radio
-    }
-    let button = app.buttons[label]
-    if button.exists {
-      return button
-    }
-    return app.segmentedControls.buttons[label]
   }
 
   // MARK: - Query helpers

@@ -90,6 +90,7 @@ final class ServiceManager {
   private let agentService: any LoginItemServiceManaging
   private let statusItemService: any LoginItemServiceManaging
   private let agentClient: any AgentClientProtocol
+  private var refreshSequence = 0
 
   init(
     agentService: any LoginItemServiceManaging = LoginItemService(
@@ -128,12 +129,19 @@ final class ServiceManager {
   }
 
   func refresh() async {
+    refreshSequence &+= 1
+    let sequence = refreshSequence
     refreshServiceStatus()
     refreshStatusItemStatus()
     do {
-      agentStatus = try await agentClient.status()
+      let status = try await agentClient.status()
+      guard sequence == refreshSequence, !Task.isCancelled else { return }
+      agentStatus = status
       lastError = nil
     } catch {
+      // A SwiftUI .task is cancelled when its view disappears. Its final XPC
+      // call must not turn a previously verified setup into a missing one.
+      guard sequence == refreshSequence, !Task.isCancelled else { return }
       agentStatus = nil
       lastError = error.localizedDescription
     }

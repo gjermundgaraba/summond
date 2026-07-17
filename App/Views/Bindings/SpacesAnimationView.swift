@@ -48,17 +48,24 @@ struct SpacesAnimationView: View {
 
   @ViewBuilder
   private func stage(t: Double, reduced: Bool) -> some View {
+    let currentX = currentSpaceX(t: t, reduced: reduced)
+
     ZStack(alignment: .topLeading) {
       ForEach(0..<3, id: \.self) { index in
-        SpaceCard(isCurrent: index == 2)
+        SpaceCard()
           .frame(width: cardW, height: cardH)
           .position(x: cardX(index), y: cardH / 2)
       }
 
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .stroke(Color.accentColor, lineWidth: 1.5)
+        .frame(width: cardW, height: cardH)
+        .position(x: currentX, y: cardH / 2)
+
       Text("Current")
         .font(.system(size: 8, weight: .semibold))
         .foregroundStyle(.tint)
-        .position(x: cardX(2), y: cardH + 8)
+        .position(x: currentX, y: cardH + 8)
 
       if mode == .newWindow {
         WindowChip(focused: false)
@@ -82,13 +89,9 @@ struct SpacesAnimationView: View {
   private func animatedWindow(t: Double, reduced: Bool) -> some View {
     switch mode {
     case .launch:
-      let amount = smoothstep(0.12, 0.42, t)
-      let opacity = reduced ? 1 : amount * (1 - smoothstep(0.90, 1.0, t))
-      WindowChip(focused: reduced || glow(t, 0.42))
+      WindowChip(focused: reduced || glow(t, 0.62))
         .frame(width: winW, height: winH)
-        .scaleEffect(reduced ? 1 : 0.7 + 0.3 * amount)
-        .opacity(opacity)
-        .position(x: cardX(2), y: winY)
+        .position(x: cardX(0), y: winY)
 
     case .newWindow:
       let amount = smoothstep(0.15, 0.45, t)
@@ -111,20 +114,30 @@ struct SpacesAnimationView: View {
     }
   }
 
+  private func currentSpaceX(t: Double, reduced: Bool) -> CGFloat {
+    guard mode == .launch else {
+      return cardX(2)
+    }
+    if reduced {
+      return cardX(0)
+    }
+
+    let progress = smoothstep(0.22, 0.62, t)
+    return cardX(2) + (cardX(0) - cardX(2)) * progress
+  }
+
   private func glow(_ t: Double, _ start: Double) -> Bool {
     t >= start && t < start + 0.22
   }
 }
 
 private struct SpaceCard: View {
-  var isCurrent: Bool
-
   var body: some View {
     RoundedRectangle(cornerRadius: 6, style: .continuous)
       .fill(.thinMaterial)
       .overlay {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
-          .stroke(isCurrent ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1.2)
+          .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
       }
   }
 }

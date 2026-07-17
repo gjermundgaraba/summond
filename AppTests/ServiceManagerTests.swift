@@ -57,6 +57,27 @@ struct ServiceManagerTests {
     #expect(agentService.registerCalls == 1)
     #expect(manager.setupState.firstUnmetOnboardingStep == .backgroundService)
   }
+
+  @Test("A cancelled refresh preserves the last verified setup state")
+  func cancelledRefreshPreservesSetupState() async {
+    let agentClient = CancellableAgentClient()
+    let manager = ServiceManager(
+      agentService: StubLoginItemService(),
+      statusItemService: StubLoginItemService(),
+      agentClient: agentClient
+    )
+
+    await manager.refresh()
+    #expect(manager.setupState.hardRequirementsSatisfied)
+
+    let cancelledRefresh = Task { await manager.refresh() }
+    await agentClient.waitUntilSecondCallStarts()
+    cancelledRefresh.cancel()
+    await cancelledRefresh.value
+
+    #expect(manager.setupState.hardRequirementsSatisfied)
+    #expect(manager.lastError == nil)
+  }
 }
 
 private final class SuspendingLoginItemService: LoginItemServiceManaging, @unchecked Sendable {
@@ -170,4 +191,38 @@ private struct ThrowingAgentClient: AgentClientProtocol {
 
   func requestAccessibilityPrompt() {}
   func requestInputMonitoringPrompt() {}
+}
+
+private actor CancellableAgentClient: AgentClientProtocol {
+  private var statusCalls = 0
+
+  func status() async throws -> AgentStatus {
+    statusCalls += 1
+    if statusCalls > 1 {
+      try await Task.sleep(nanoseconds: 30_000_000_000)
+    }
+    return Self.makeStatus()
+  }
+
+  func reloadConfiguration() async throws -> AgentStatus { Self.makeStatus() }
+  nonisolated func requestAccessibilityPrompt() {}
+  nonisolated func requestInputMonitoringPrompt() {}
+
+  func waitUntilSecondCallStarts() async {
+    while statusCalls < 2 {
+      await Task.yield()
+    }
+  }
+
+  private static func makeStatus() -> AgentStatus {
+    AgentStatus(
+      agentVersion: "test",
+      accessibilityGranted: true,
+      inputMonitoringGranted: true,
+      tapActive: true,
+      configState: .ok,
+      bindingCount: 0,
+      lastReloadError: nil
+    )
+  }
 }
