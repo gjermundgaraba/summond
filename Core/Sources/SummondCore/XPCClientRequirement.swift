@@ -2,7 +2,7 @@ import Foundation
 
 public enum XPCClientRequirement {
   /// Bundle identifiers allowed to connect to the agent's XPC service: the
-  /// preferences app and the menu bar status item.
+  /// main app and the menu bar status item.
   public static let allowedClientBundleIdentifiers = [
     SummondBundleIdentifiers.app,
     SummondBundleIdentifiers.statusItem,

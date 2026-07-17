@@ -85,6 +85,9 @@ tart exec "$base_vm" /bin/zsh -lc \
      HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
    fi
    xcodebuild -version
-   xcodegen --version'
+   xcodegen --version
+   # tart stop powers off the VM before macOS necessarily flushes recent writes.
+   # Persist Homebrew installs before cleanup stops the base VM.
+   /bin/sync'
 
 echo "Base VM '$base_vm' is ready."

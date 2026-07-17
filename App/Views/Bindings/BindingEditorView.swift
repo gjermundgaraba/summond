@@ -1,43 +1,47 @@
+import CoreGraphics
 import SummondCore
 import SwiftUI
 
-struct BindingEditorView: View {
-  var model: PreferencesViewModel
-  @Binding var editorDraft: BindingEditorDraft
+struct ShortcutEditorView: View {
+  @Binding var draft: ShortcutEditorDraft
+  let applications: [AppDisplayInfo]
+  let isLoadingApplications: Bool
+  let validationMessages: [String]
+  var loadApplications: () async -> Void
+  var resolveApplication: (URL) -> AppIdentity?
+  var recordShortcut: (CGKeyCode, CGEventFlags) -> ShortcutRecordResult
+  var onSave: (ShortcutEditorDraft) async -> String?
+  var onCancel: () -> Void
+
   @State private var isRecording = false
   @State private var recorderError: String?
-
-  private func allValidationMessages(from messages: [String]) -> [String] {
-    var messages = messages
-    if let recorderError {
-      messages.insert(recorderError, at: 0)
-    }
-    var seen: Set<String> = []
-    return messages.filter { seen.insert($0).inserted }
-  }
-
-  private func canSave(with messages: [String]) -> Bool {
-    allValidationMessages(from: messages).isEmpty && !model.isSaving
-  }
+  @State private var saveError: String?
+  @State private var isSaving = false
 
   var body: some View {
-    let messages = model.validationMessages(for: editorDraft)
-
     VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 16) {
+        Text(draft.editingID == nil ? "Add Shortcut" : "Edit Shortcut")
+          .font(.title2.weight(.semibold))
+
         shortcutSection
-        modeSection
-        AppPickerView(model: model, editorDraft: $editorDraft)
-          .frame(maxHeight: .infinity)
+        behaviorSection
+
+        AppPickerView(
+          draft: $draft,
+          applications: applications,
+          isLoading: isLoadingApplications,
+          loadApplications: loadApplications,
+          resolveApplication: resolveApplication
+        )
+        .frame(maxHeight: .infinity)
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 16)
-      .padding(.bottom, 12)
+      .padding(20)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-      footer(validationMessages: messages)
+      footer
     }
-    .frame(minWidth: 580, idealWidth: 580, minHeight: 560, idealHeight: 660)
+    .frame(width: 680, height: 620)
   }
 
   private var shortcutSection: some View {
@@ -47,92 +51,100 @@ struct BindingEditorView: View {
         .foregroundStyle(.secondary)
 
       ShortcutRecorderView(
-        shortcut: $editorDraft.shortcut,
+        shortcut: $draft.shortcut,
         isRecording: $isRecording,
-        errorMessage: $recorderError
-      ) { keyCode, flags in
-        model.recordShortcut(keyCode: keyCode, flags: flags)
-      }
+        errorMessage: $recorderError,
+        onRecord: recordShortcut
+      )
 
-      shortcutCaption
+      Group {
+        if let recorderError {
+          Label(recorderError, systemImage: "exclamationmark.circle")
+            .foregroundStyle(.red)
+        }
+      }
+      .font(.caption)
+      .fixedSize(horizontal: false, vertical: true)
     }
   }
 
-  private var shortcutCaption: some View {
-    HStack(spacing: 5) {
-      if let recorderError {
-        Image(systemName: "exclamationmark.circle")
-        Text(recorderError)
-          .lineLimit(1)
-          .truncationMode(.tail)
-      } else if let caution = model.cautionMessage(for: editorDraft) {
-        Image(systemName: "info.circle")
-        Text(caution)
-          .lineLimit(1)
-          .truncationMode(.tail)
-      }
-    }
-    .font(.caption)
-    .foregroundStyle(recorderError == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
-    .frame(height: 18, alignment: .leading)
-  }
-
-  private var modeSection: some View {
+  private var behaviorSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Open Mode")
+      Text("Window Behavior")
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
 
-      Picker("Open Mode", selection: $editorDraft.mode) {
-        ForEach(AppOpenMode.allCases, id: \.self) { mode in
-          Text(mode.shortTitle).tag(mode)
-        }
-      }
-      .labelsHidden()
-      .pickerStyle(.segmented)
-      .accessibilityIdentifier("editor.modePicker")
+      Text("When the application is already open on another Space:")
+        .font(.callout)
+        .foregroundStyle(.secondary)
 
-      HStack(spacing: 14) {
-        SpacesAnimationView(mode: editorDraft.mode)
-          .frame(width: 170, height: 76)
-
-        VStack(alignment: .leading, spacing: 4) {
-          Text(editorDraft.mode.title)
-            .font(.headline)
-          Text(editorDraft.mode.description)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+      HStack(alignment: .center, spacing: 24) {
+        Picker("Window Behavior", selection: $draft.mode) {
+          ForEach(AppOpenMode.allCases, id: \.self) { mode in
+            Text(mode.title)
+              .tag(mode)
+              .help(mode.description)
+              .accessibilityIdentifier("editor.mode.\(mode.rawValue)")
+          }
         }
-        Spacer(minLength: 0)
+        .labelsHidden()
+        .pickerStyle(.radioGroup)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("editor.behaviorPicker")
+
+        SpacesAnimationView(mode: draft.mode)
+          .frame(width: 190, height: 88)
+          .accessibilityHidden(true)
       }
-      .padding(12)
-      .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
-      .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+
+      Text(draft.mode.description)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 
-  private func footer(validationMessages: [String]) -> some View {
+  private var footer: some View {
     VStack(spacing: 0) {
       Divider()
+
       HStack(spacing: 12) {
-        validationSummary(validationMessages)
+        if let saveError {
+          Label(saveError, systemImage: "exclamationmark.circle")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .lineLimit(2)
+            .help(saveError)
+            .frame(maxWidth: 390, alignment: .leading)
+        } else if let message = validationMessages.first {
+          Text(message)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .frame(maxWidth: 390, alignment: .leading)
+        }
+
         Spacer()
 
-        Button("Cancel") {
-          model.cancelEditing()
-        }
-        .keyboardShortcut(.cancelAction)
-        .accessibilityIdentifier("editor.cancelButton")
+        Button("Cancel", action: onCancel)
+          .keyboardShortcut(.cancelAction)
+          .disabled(isSaving)
+          .accessibilityIdentifier("editor.cancelButton")
 
-        Button("Save") {
-          Task {
-            await model.commitEditorDraftAndSave()
+        Button {
+          save()
+        } label: {
+          if isSaving {
+            ProgressView()
+              .controlSize(.small)
+              .accessibilityLabel("Saving")
+          } else {
+            Text("Save")
           }
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.defaultAction)
-        .disabled(!canSave(with: validationMessages))
+        .disabled(!canSave)
         .accessibilityIdentifier("editor.saveButton")
       }
       .padding(.horizontal, 20)
@@ -140,50 +152,20 @@ struct BindingEditorView: View {
     }
   }
 
-  @ViewBuilder
-  private func validationSummary(_ validationMessages: [String]) -> some View {
-    if let message = validationMessages.first {
-      Label(message, systemImage: "exclamationmark.circle")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .help(validationMessages.joined(separator: "\n"))
-        .frame(maxWidth: 300, alignment: .leading)
-    }
+  private var canSave: Bool {
+    validationMessages.isEmpty && recorderError == nil && !isRecording && !isSaving
   }
-}
 
-struct BindingEditorWindowRoot: View {
-  var model: PreferencesViewModel
-  @Environment(\.dismissWindow) private var dismissWindow
-  @Environment(\.dismiss) private var dismiss
-
-  var body: some View {
-    Group {
-      if let draft = model.editorDraft {
-        BindingEditorView(
-          model: model,
-          editorDraft: Binding(
-            get: { model.editorDraft ?? draft },
-            set: { model.editorDraft = $0 }
-          )
-        )
-        .navigationTitle(draft.editingID == nil ? "Add Binding" : "Edit Binding")
+  private func save() {
+    saveError = nil
+    isSaving = true
+    Task {
+      let error = await onSave(draft)
+      isSaving = false
+      if let error {
+        saveError = error
       } else {
-        Color.clear
-          .frame(minWidth: 580, idealWidth: 580, minHeight: 560, idealHeight: 660)
-      }
-    }
-    .onDisappear {
-      if model.editorDraft != nil {
-        model.cancelEditing()
-      }
-    }
-    .onChange(of: model.editorDraft == nil) { _, isNil in
-      if isNil {
-        dismissWindow(id: "binding-editor")
-        dismiss()
+        onCancel()
       }
     }
   }
