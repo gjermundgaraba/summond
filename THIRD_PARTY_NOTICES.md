@@ -7,9 +7,9 @@ Summond incorporates or is informed by the following third-party work.
 Summond's Space-moving code (`Core/Sources/SummondCore/SpaceMover.swift`) was
 informed by yabai's approach to moving other applications' windows between
 Mission Control Spaces with private SkyLight window-server functions. No yabai
-source is vendored; the technique — resolving
+source is vendored; the technique of resolving
 `SLSPerformAsynchronousBridgedWindowManagementOperation` and the
-`SLSBridgedMoveWindowsToManagedSpaceOperation` class at runtime — was adapted
+`SLSBridgedMoveWindowsToManagedSpaceOperation` class at runtime was adapted
 independently. yabai is distributed under the MIT License:
 
 ```

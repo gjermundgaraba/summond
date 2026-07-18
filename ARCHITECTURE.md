@@ -1,8 +1,8 @@
 # Architecture
 
 Summond is a macOS preferences app, LaunchAgent, status item, and shared core
-library that summons app windows — opening, focusing, or moving them — from
-global shortcuts.
+library that summons app windows from global shortcuts: it opens, focuses, or
+moves them onto the current Space.
 
 ## Component Diagram
 
@@ -51,8 +51,8 @@ LaunchAgent embedded as a faceless helper app bundle at
 `Contents/MacOS/SummondAgent.app` (bundle identifier
 `net.garaba.summond.agent`, `LSUIElement`). It is a bundle rather than a bare
 executable so that the Accessibility permission it requests displays as
-"Summond" with the app icon — TCC shows the requesting bundle's display name
-and icon, and a bare tool would show the raw executable name and a generic
+"Summond" with the app icon. TCC shows the requesting bundle's display name
+and icon; a bare tool would show the raw executable name and a generic
 icon. It lives under `Contents/MacOS` (a standard code location) rather than
 `Contents/Resources` so the outer app signs it as nested code with its own
 cdhash instead of sealing it as a flat resource tree. The LaunchAgent plist's
@@ -131,8 +131,8 @@ swallowed and the failure is logged.
 
 **New Window** (Swift `.newWindow`, stored `new_window`) checks whether the app
 already has a window on the current Space using runtime-resolved private SkyLight
-queries. If the app is running but has no window on the current Space — including
-an app with no windows — the runtime asks the Dock accessibility menu for
+queries. If the app is running but has no window on the current Space (including
+an app with no windows at all), the runtime asks the Dock accessibility menu for
 **New Window**, waits for a new current-Space window, and activates the app.
 Failures are logged and are non-fatal.
 
@@ -251,7 +251,7 @@ flows also add a generated `SpawnConstraint` with:
 - `team-identifier`: the signing team ID
 - `signing-identifier`: `net.garaba.summond.agent`
 
-## Signing And Notarization
+## Signing and Notarization
 
 Distribution is Developer ID outside the Mac App Store. Hardened runtime is
 enabled, the app sandbox is disabled, and no target currently needs custom
@@ -298,16 +298,16 @@ make test
 
 The agent's cross-process surface is covered in two layers:
 
-- **Routine (`make test`)** — an anonymous-`NSXPCListener` integration test
+- **Routine (`make test`)**: an anonymous-`NSXPCListener` integration test
   drives the real `AgentClient` (NSXPC interface, async reply bridge, and
   `AgentStatus` codec across a genuine XPC boundary), and a static test
   asserts the LaunchAgent plist's `MachServices` name, `BundleProgram` path, and
   bundle identifiers against the single `SummondBundleIdentifiers` constants. No
   signing, launchd, or VM.
-- **Unattended VM (`make smoke-tart`)** — a clean Tart VM builds an ad-hoc-signed
+- **Unattended VM (`make smoke-tart`)**: a clean Tart VM builds an ad-hoc-signed
   `SMOKE_TEST` app, `launchctl`-loads the embedded agent (the `SMOKE_TEST` build
   relaxes the team requirement so an ad-hoc client connects), and round-trips XPC
-  status against the real agent over the mach service — covering launchd spawn,
+  status against the real agent over the mach service. This covers launchd spawn,
   mach-name resolution, the real `AgentXPCService`, and the codec. It cannot
   cover `SMAppService` registration, Login Items approval, the team-signed
   requirement, or `SpawnConstraint`, which need a signed/pre-approved Mac and

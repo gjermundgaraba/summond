@@ -1,7 +1,7 @@
 # Summond
 
 Summond is a macOS app and background agent that summons app windows from a
-global shortcut — it opens, focuses, or moves a target app's windows onto your
+global shortcut: it opens, focuses, or moves a target app's windows onto your
 current Space. Summond edits shortcuts, the LaunchAgent intercepts
 key events, and an optional menu bar item shows agent health.
 
