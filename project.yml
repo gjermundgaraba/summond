@@ -13,6 +13,9 @@ settings:
 packages:
   SummondCore:
     path: Core
+  PermissionFlow:
+    url: https://github.com/jaywcjlove/PermissionFlow
+    exactVersion: 2.6.0
 targets:
   Summond:
     type: application
@@ -22,10 +25,14 @@ targets:
         excludes:
           - Resources/**
           - Info.plist
+      - path: App/Resources/ThirdPartyNotices.md
+        buildPhase: resources
       - path: Resources/AppIcon.icns
     dependencies:
       - package: SummondCore
         product: SummondCore
+      - package: PermissionFlow
+        product: PermissionFlow
       - target: SummondAgent
         embed: false
       - target: SummondStatus

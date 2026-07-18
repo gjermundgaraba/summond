@@ -1,3 +1,4 @@
+import PermissionFlow
 import SummondCore
 import SwiftUI
 
@@ -6,6 +7,13 @@ struct SetupAssistantView: View {
   var showsFirstShortcutAction: Bool
   var onDismiss: () -> Void
   var onAddFirstShortcut: () -> Void
+
+  // PermissionFlow's status providers inspect this UI process, but the
+  // permissions belong to the embedded SummondAgent helper. Keep this
+  // controller local to the sheet and continue to render agentStatus instead.
+  @StateObject private var permissionFlowController = PermissionFlowController(
+    configuration: .init(promptForAccessibilityTrust: false)
+  )
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -19,7 +27,13 @@ struct SetupAssistantView: View {
           systemImage: "hand.raised.fill",
           isGranted: accessibilityGranted,
           actionTitle: "Open Settings…",
-          action: model.requestAccessibilitySetup,
+          action: {
+            startPermissionSetup(
+              pane: .accessibility,
+              requestAgentPrompt: model.requestAccessibilitySetup,
+              fallback: model.openAccessibilitySettings
+            )
+          },
           accessibilityIdentifier: "setup.openAccessibilitySettingsButton"
         )
         permissionRow(
@@ -28,7 +42,13 @@ struct SetupAssistantView: View {
           systemImage: "keyboard.badge.eye",
           isGranted: inputMonitoringGranted,
           actionTitle: "Open Settings…",
-          action: model.requestInputMonitoringSetup,
+          action: {
+            startPermissionSetup(
+              pane: .inputMonitoring,
+              requestAgentPrompt: model.requestInputMonitoringSetup,
+              fallback: model.openInputMonitoringSettings
+            )
+          },
           accessibilityIdentifier: "setup.openInputMonitoringSettingsButton"
         )
       }
@@ -42,6 +62,28 @@ struct SetupAssistantView: View {
     }
     .frame(width: 600)
     .fixedSize(horizontal: false, vertical: true)
+    .onDisappear {
+      permissionFlowController.closePanel()
+    }
+  }
+
+  private func startPermissionSetup(
+    pane: PermissionFlowPane,
+    requestAgentPrompt: () -> Void,
+    fallback: () -> Void
+  ) {
+    requestAgentPrompt()
+
+    #if DEBUG
+      if UITestHarness.isActive, !UITestHarness.allowsSystemPermissionFlow { return }
+    #endif
+
+    guard let agentAppURL = PermissionFlowHelperAppLocator.bundledAgentAppURL() else {
+      fallback()
+      return
+    }
+
+    permissionFlowController.authorize(pane: pane, suggestedAppURLs: [agentAppURL])
   }
 
   private var header: some View {

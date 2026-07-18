@@ -350,12 +350,10 @@ final class SummondModel {
 
   func requestAccessibilitySetup() {
     agentClient.requestAccessibilityPrompt()
-    openAccessibilitySettings()
   }
 
   func requestInputMonitoringSetup() {
     agentClient.requestInputMonitoringPrompt()
-    openInputMonitoringSettings()
   }
 
   func openLoginItemsSettings() {
@@ -363,18 +361,12 @@ final class SummondModel {
   }
 
   func openAccessibilitySettings() {
-    #if DEBUG
-      if UITestHarness.isActive { return }
-    #endif
     openSystemSettings(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     )
   }
 
   func openInputMonitoringSettings() {
-    #if DEBUG
-      if UITestHarness.isActive { return }
-    #endif
     openSystemSettings(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
     )
