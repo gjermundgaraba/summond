@@ -92,7 +92,7 @@ struct SummondModelTests {
       target: try AppTarget(bundleID: "com.apple.Safari", mode: .launch)
     )
     let store = MockConfigurationStore(
-      loadResult: .loaded(SummondConfigurationV1(bindings: [existing]))
+      loadResult: .loaded(SummondConfiguration(bindings: [existing]))
     )
     let model = makeModel(store: store)
 
@@ -308,7 +308,7 @@ struct SummondModelTests {
 private final class MockConfigurationStore: @unchecked Sendable, ConfigurationStore {
   var loadResult: ConfigurationLoadResult
   var saveError: Error?
-  private(set) var savedConfigurations: [SummondConfigurationV1] = []
+  private(set) var savedConfigurations: [SummondConfiguration] = []
 
   init(loadResult: ConfigurationLoadResult, saveError: Error? = nil) {
     self.loadResult = loadResult
@@ -319,7 +319,7 @@ private final class MockConfigurationStore: @unchecked Sendable, ConfigurationSt
     loadResult
   }
 
-  func save(_ configuration: SummondConfigurationV1) throws {
+  func save(_ configuration: SummondConfiguration) throws {
     if let saveError {
       throw saveError
     }

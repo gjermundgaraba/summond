@@ -1,25 +1,27 @@
 import Foundation
 import OSLog
 
-public struct SummondConfigurationV1: Codable, Equatable, Sendable {
+public struct SummondConfiguration: Codable, Equatable, Sendable {
   public static let currentSchemaVersion = 1
 
-  public var schemaVersion: Int
+  // Read-only so an in-memory configuration can never carry a version other than
+  // the current one; Codable decoding still populates it from persisted data, and
+  // load() rejects any unsupported version it reads back.
+  public private(set) var schemaVersion: Int
   public var bindings: [StoredBinding]
   public var verboseLogging: Bool
 
   public init(
-    schemaVersion: Int = Self.currentSchemaVersion,
     bindings: [StoredBinding] = [],
     verboseLogging: Bool = false
   ) {
-    self.schemaVersion = schemaVersion
+    self.schemaVersion = Self.currentSchemaVersion
     self.bindings = bindings
     self.verboseLogging = verboseLogging
   }
 
-  public static var empty: SummondConfigurationV1 {
-    SummondConfigurationV1()
+  public static var empty: SummondConfiguration {
+    SummondConfiguration()
   }
 }
 
@@ -36,18 +38,9 @@ public struct StoredBinding: Codable, Equatable, Sendable, Identifiable {
 }
 
 public enum ConfigurationLoadResult: Equatable, Sendable {
-  case fresh(SummondConfigurationV1)
-  case loaded(SummondConfigurationV1)
+  case fresh(SummondConfiguration)
+  case loaded(SummondConfiguration)
   case corrupt(ConfigurationCorruption)
-
-  public var configuration: SummondConfigurationV1? {
-    switch self {
-    case .fresh(let configuration), .loaded(let configuration):
-      configuration
-    case .corrupt:
-      nil
-    }
-  }
 }
 
 public enum ConfigurationCorruption: Error, Equatable, Sendable {
@@ -87,12 +80,12 @@ extension ConfigurationValidationError: LocalizedError {
 
 public protocol ConfigurationStore: Sendable {
   func load() -> ConfigurationLoadResult
-  func save(_ configuration: SummondConfigurationV1) throws
+  func save(_ configuration: SummondConfiguration) throws
 }
 
 public final class UserDefaultsConfigurationStore: @unchecked Sendable, ConfigurationStore {
   public static let defaultSuiteName = "net.garaba.summond.shared"
-  public static let defaultKey = "configuration.v1"
+  public static let defaultKey = "configuration"
 
   private let defaults: UserDefaults
   private let key: String
@@ -139,7 +132,7 @@ public final class UserDefaultsConfigurationStore: @unchecked Sendable, Configur
     return result
   }
 
-  public func save(_ configuration: SummondConfigurationV1) throws {
+  public func save(_ configuration: SummondConfiguration) throws {
     try ConfigurationValidator.validate(configuration)
     defaults.set(try ConfigurationCodec.encode(configuration), forKey: key)
     // Flush to cfprefsd synchronously so the agent process, prompted to reload
@@ -164,51 +157,37 @@ public final class InMemoryConfigurationStore: @unchecked Sendable, Configuratio
     return ConfigurationCodec.decode(data)
   }
 
-  public func save(_ configuration: SummondConfigurationV1) throws {
+  public func save(_ configuration: SummondConfiguration) throws {
     try ConfigurationValidator.validate(configuration)
     let encoded = try ConfigurationCodec.encode(configuration)
     lock.withLock {
       data = encoded
     }
   }
-
-  public func rawData() -> Data? {
-    lock.withLock { data }
-  }
-
-  public func replaceRawData(_ data: Data?) {
-    lock.withLock {
-      self.data = data
-    }
-  }
 }
 
-public func appBindings(from configuration: SummondConfigurationV1) -> [AppBinding] {
-  configuration.bindings.map { stored in
-    AppBinding(shortcut: stored.shortcut, app: stored.target)
-  }
-}
-
-public func validateConfiguration(_ configuration: SummondConfigurationV1) throws {
+public func validateConfiguration(_ configuration: SummondConfiguration) throws {
   try ConfigurationValidator.validate(configuration)
 }
 
 enum ConfigurationCodec {
-  static func encode(_ configuration: SummondConfigurationV1) throws -> Data {
+  static func encode(_ configuration: SummondConfiguration) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     return try encoder.encode(configuration)
   }
 
   static func decode(_ data: Data) -> ConfigurationLoadResult {
-    let configuration: SummondConfigurationV1
+    let configuration: SummondConfiguration
     do {
-      configuration = try JSONDecoder().decode(SummondConfigurationV1.self, from: data)
+      configuration = try JSONDecoder().decode(SummondConfiguration.self, from: data)
     } catch {
       return .corrupt(.undecodable(error.localizedDescription))
     }
 
-    guard configuration.schemaVersion == SummondConfigurationV1.currentSchemaVersion else {
+    // schemaVersion is the durability hook: an unrecognized version is a
+    // configuration written by a newer Summond, reported rather than misparsed.
+    guard configuration.schemaVersion == SummondConfiguration.currentSchemaVersion else {
       return .corrupt(.unsupportedSchemaVersion(configuration.schemaVersion))
     }
 
@@ -225,12 +204,8 @@ enum ConfigurationCodec {
 }
 
 enum ConfigurationValidator {
-  static func validate(_ configuration: SummondConfigurationV1) throws {
-    guard configuration.schemaVersion == SummondConfigurationV1.currentSchemaVersion else {
-      throw ConfigurationCorruption.unsupportedSchemaVersion(configuration.schemaVersion)
-    }
-
-    var compiledShortcuts: [CompiledShortcut: String] = [:]
+  static func validate(_ configuration: SummondConfiguration) throws {
+    var seenShortcuts: Set<CompiledShortcut> = []
     for (offset, binding) in configuration.bindings.enumerated() {
       let index = offset + 1
       guard !binding.target.bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -245,14 +220,10 @@ enum ConfigurationValidator {
         throw ConfigurationValidationError.invalidBinding(index: index, error: error)
       }
 
-      if compiledShortcuts[shortcut] != nil {
+      guard seenShortcuts.insert(shortcut).inserted else {
         throw ConfigurationValidationError.duplicateShortcut(
-          index: index,
-          description: binding.shortcut.description
-        )
+          index: index, description: binding.shortcut.description)
       }
-
-      compiledShortcuts[shortcut] = binding.shortcut.description
     }
   }
 }

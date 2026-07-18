@@ -53,10 +53,7 @@ struct SummondAgentMain {
       launchHistory: launchHistory
     )
     let listener = AgentXPCListener(supervisor: supervisor)
-    guard listener.start() else {
-      SummondLoggers.agent.fault("failed to start XPC listener")
-      exit(1)
-    }
+    listener.start()
 
     supervisor.bootstrap()
     RunLoop.main.run()

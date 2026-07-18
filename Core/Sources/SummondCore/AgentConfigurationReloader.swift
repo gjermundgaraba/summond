@@ -83,15 +83,15 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   }
 
   private func compile(
-    _ configuration: SummondConfigurationV1,
+    _ configuration: SummondConfiguration,
     configState: AgentConfigurationState
   ) -> AgentConfigurationReloadResult {
     do {
-      let compiled = try BindingCompiler.compileBindingsSkippingUnresolved(
-        appBindings(from: configuration),
+      let compiled = try BindingCompiler.compile(
+        configuration.bindings.map { AppBinding(shortcut: $0.shortcut, app: $0.target) },
         appResolver: appResolver
       )
-      let unresolvedBundleIDs = compiled.unresolved.map(\.bundleID)
+      let unresolvedBundleIDs = compiled.unresolvedBundleIDs
       lock.withLock {
         currentBindingCount = compiled.snapshot.count
         currentVerboseLogging = configuration.verboseLogging

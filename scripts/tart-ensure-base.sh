@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-base_vm="${1:-codex-macos-tahoe-xcodegen-base}"
-source_image="${CODEX_TART_SOURCE_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode:latest}"
+base_vm="${1:-summond-macos-tahoe-xcodegen-base}"
+source_image="${SUMMOND_TART_SOURCE_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode:latest}"
 ready_timeout=300
 run_pid=""
 started_vm=0

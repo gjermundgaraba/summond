@@ -134,45 +134,6 @@ struct SystemHealthTests {
     }
   }
 
-  @Test("Preserves the full precedence chain when later failures coexist")
-  func preservesPrecedence() {
-    let laterFailures = status(
-      accessibilityGranted: false,
-      inputMonitoringGranted: false,
-      tapActive: false,
-      tapFailureReason: .disabledByTimeout,
-      configState: .corrupt,
-      lastReloadError: "corrupt",
-      unresolvedBundleIDs: ["com.example.missing"]
-    )
-    #expect(
-      SystemHealth.evaluate(agentStatus: laterFailures)
-        == .setupRequired(.accessibilityPermission)
-    )
-
-    let afterPermissions = status(
-      tapActive: false,
-      tapFailureReason: .disabledByTimeout,
-      configState: .corrupt,
-      lastReloadError: "corrupt",
-      unresolvedBundleIDs: ["com.example.missing"]
-    )
-    #expect(
-      SystemHealth.evaluate(agentStatus: afterPermissions)
-        == .degraded(.configurationCorrupt(details: "corrupt"))
-    )
-
-    let afterConfiguration = status(
-      tapActive: false,
-      tapFailureReason: .disabledByTimeout,
-      unresolvedBundleIDs: ["com.example.missing"]
-    )
-    #expect(
-      SystemHealth.evaluate(agentStatus: afterConfiguration)
-        == .degraded(.unresolvedApplications(bundleIDs: ["com.example.missing"]))
-    )
-  }
-
   private func status(
     accessibilityGranted: Bool = true,
     inputMonitoringGranted: Bool = true,
@@ -202,7 +163,7 @@ struct AgentConfigurationReloadTests {
   @Test("Reload skips unresolved bundle IDs and installs resolvable bindings")
   @MainActor
   func reloadSkipsUnresolvedBundleIDs() async throws {
-    let configuration = SummondConfigurationV1(
+    let configuration = SummondConfiguration(
       bindings: [
         try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari"),
         try storedBinding(key: "f6", mods: ["cmd"], bundleID: "com.example.missing"),
@@ -233,13 +194,14 @@ struct AgentConfigurationReloadTests {
       Shortcut(key: "f5", mods: ["cmd"])
     )
     #expect(
-      snapshot.binding(for: installedShortcut)?.identity.bundleIdentifier == "com.apple.safari")
+      snapshot.bindingsByTrigger[installedShortcut]?.identity.bundleIdentifier
+        == "com.apple.safari")
   }
 
   @Test("Hard invalid reload preserves the previous engine snapshot")
   @MainActor
   func hardInvalidReloadPreservesPreviousSnapshot() async throws {
-    let initialConfiguration = SummondConfigurationV1(
+    let initialConfiguration = SummondConfiguration(
       bindings: [
         try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")
       ]
@@ -254,7 +216,7 @@ struct AgentConfigurationReloadTests {
     let firstSnapshot = try #require(firstReload.snapshotToInstall)
 
     store.configuration =
-      SummondConfigurationV1(
+      SummondConfiguration(
         bindings: [
           StoredBinding(
             shortcut: Shortcut(key: "not-a-key", mods: ["cmd"]),
@@ -273,7 +235,8 @@ struct AgentConfigurationReloadTests {
       Shortcut(key: "f5", mods: ["cmd"])
     )
     #expect(
-      firstSnapshot.binding(for: preservedShortcut)?.identity.bundleIdentifier == "com.apple.safari"
+      firstSnapshot.bindingsByTrigger[preservedShortcut]?.identity.bundleIdentifier
+        == "com.apple.safari"
     )
   }
 }
@@ -447,9 +410,9 @@ private enum TestXPCBridgeError: Error, Equatable {
 
 private final class MutableLoadedConfigurationStore: @unchecked Sendable, ConfigurationStore {
   private let lock = NSLock()
-  private var storedConfiguration: SummondConfigurationV1
+  private var storedConfiguration: SummondConfiguration
 
-  var configuration: SummondConfigurationV1 {
+  var configuration: SummondConfiguration {
     get {
       lock.withLock { storedConfiguration }
     }
@@ -460,7 +423,7 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
     }
   }
 
-  init(configuration: SummondConfigurationV1) {
+  init(configuration: SummondConfiguration) {
     self.storedConfiguration = configuration
   }
 
@@ -468,7 +431,7 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
     .loaded(configuration)
   }
 
-  func save(_ configuration: SummondConfigurationV1) throws {
+  func save(_ configuration: SummondConfiguration) throws {
     try validateConfiguration(configuration)
     self.configuration = configuration
   }

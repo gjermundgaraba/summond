@@ -23,7 +23,7 @@ public actor AppOpener {
     guard !inFlightBundleIDs.contains(bundleID) else {
       if verboseLogging {
         logger.debug(
-          "[\(binding.description, privacy: .private)] skipping '\(bundleID, privacy: .private)', already in-flight"
+          "[\(binding.binding.shortcut.description, privacy: .private)] skipping '\(bundleID, privacy: .private)', already in-flight"
         )
       }
       return
@@ -34,7 +34,8 @@ public actor AppOpener {
     Task(priority: .userInitiated) {
       let result = await self.runtime.open(
         identity: binding.identity, mode: binding.binding.app.mode)
-      self.finish(bundleID: bundleID, result: result, description: binding.description)
+      self.finish(
+        bundleID: bundleID, result: result, description: binding.binding.shortcut.description)
     }
   }
 
@@ -46,7 +47,7 @@ public actor AppOpener {
   }
 
   private func finish(bundleID: String, result: OpenAppResult, description: String) {
-    log(result, description: description)
+    log(result, description: description, bundleID: bundleID)
     inFlightBundleIDs.remove(bundleID)
 
     guard inFlightBundleIDs.isEmpty else {
@@ -60,27 +61,27 @@ public actor AppOpener {
     }
   }
 
-  private func log(_ result: OpenAppResult, description: String) {
+  private func log(_ result: OpenAppResult, description: String, bundleID: String) {
     switch result {
-    case .launched(let bundleIdentifier):
+    case .launched:
       logger.info(
-        "[\(description, privacy: .private)] launched '\(bundleIdentifier, privacy: .private)'"
+        "[\(description, privacy: .private)] launched '\(bundleID, privacy: .private)'"
       )
-    case .activatedExistingWindow(let bundleIdentifier):
+    case .activatedExistingWindow:
       logger.info(
-        "[\(description, privacy: .private)] activated '\(bundleIdentifier, privacy: .private)' on the current space"
+        "[\(description, privacy: .private)] activated '\(bundleID, privacy: .private)' on the current space"
       )
-    case .openedNewWindow(let bundleIdentifier):
+    case .openedNewWindow:
       logger.info(
-        "[\(description, privacy: .private)] opened new window for '\(bundleIdentifier, privacy: .private)'"
+        "[\(description, privacy: .private)] opened new window for '\(bundleID, privacy: .private)'"
       )
-    case .movedToCurrentSpace(let bundleIdentifier):
+    case .movedToCurrentSpace:
       logger.info(
-        "[\(description, privacy: .private)] moved '\(bundleIdentifier, privacy: .private)' to the current space"
+        "[\(description, privacy: .private)] moved '\(bundleID, privacy: .private)' to the current space"
       )
-    case .failed(let bundleIdentifier, let reason):
+    case .failed(let reason):
       logger.warning(
-        "[\(description, privacy: .private)] \(bundleIdentifier, privacy: .private): \(reason, privacy: .private)"
+        "[\(description, privacy: .private)] \(bundleID, privacy: .private): \(reason, privacy: .private)"
       )
     }
   }

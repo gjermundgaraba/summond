@@ -13,9 +13,8 @@ final class InstalledAppCatalog: AppDisplayResolving {
   private let enumerator = InstalledApplicationEnumerator()
 
   /// Resolves lightweight metadata for a bundle id. Deliberately uncached so an
-  /// app that is uninstalled mid-session is reported as missing, and icon-free
-  /// so the expensive icon decode stays off the render path — views load icons
-  /// asynchronously through `AppIconCache`.
+  /// app that is uninstalled mid-session is reported as missing, and icon-free —
+  /// views resolve icons on demand through `AppIconCache`.
   func displayInfo(for bundleID: String) -> AppDisplayInfo {
     guard
       let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
@@ -83,7 +82,7 @@ private actor InstalledApplicationEnumerator {
     guard
       let enumerator = FileManager.default.enumerator(
         at: directory,
-        includingPropertiesForKeys: [.isDirectoryKey, .contentTypeKey],
+        includingPropertiesForKeys: [.isDirectoryKey],
         options: [.skipsHiddenFiles]
       )
     else {

@@ -15,10 +15,9 @@ final class AgentXPCListener: NSObject, NSXPCListenerDelegate {
     listener.delegate = self
   }
 
-  func start() -> Bool {
+  func start() {
     listener.resume()
     logger.info("XPC listener resumed")
-    return true
   }
 
   func listener(

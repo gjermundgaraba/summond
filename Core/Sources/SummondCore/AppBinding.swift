@@ -3,7 +3,6 @@ import Foundation
 public enum BindingValidationError: Error, Equatable, Sendable {
   case unknownKey(String)
   case unknownModifiers([String])
-  case unknownMode(String)
   case emptyBundleID
 }
 
@@ -14,29 +13,8 @@ extension BindingValidationError: LocalizedError {
       "Unknown key '\(key)'"
     case .unknownModifiers(let modifiers):
       "Unknown modifier(s): \(modifiers.joined(separator: ", "))"
-    case .unknownMode(let mode):
-      "Unknown mode '\(mode)'"
     case .emptyBundleID:
       "Bundle ID cannot be empty"
-    }
-  }
-}
-
-public enum BindingConfigError: Error, Equatable, Sendable {
-  case invalidBinding(index: Int, error: BindingValidationError)
-  case duplicateShortcut(index: Int, description: String)
-  case unresolvedBundleID(index: Int, bundleID: String)
-}
-
-extension BindingConfigError: LocalizedError {
-  public var errorDescription: String? {
-    switch self {
-    case .invalidBinding(let index, let error):
-      "Config contains invalid binding #\(index): \(error.localizedDescription)"
-    case .duplicateShortcut(let index, let description):
-      "Config contains duplicate shortcut at binding #\(index): '\(description)'"
-    case .unresolvedBundleID(let index, let bundleID):
-      "Config contains unresolved bundle ID at binding #\(index): '\(bundleID)' is not installed"
     }
   }
 }
@@ -45,15 +23,6 @@ public enum AppOpenMode: String, Codable, Sendable, Equatable, CaseIterable {
   case launch
   case newWindow = "new_window"
   case move
-
-  public init(parsing value: String) throws {
-    let normalized = value.lowercased().replacingOccurrences(of: "-", with: "_")
-    guard let mode = AppOpenMode(rawValue: normalized) else {
-      throw BindingValidationError.unknownMode(value)
-    }
-
-    self = mode
-  }
 }
 
 public struct Shortcut: Codable, Sendable, Equatable {
@@ -113,9 +82,5 @@ public struct AppBinding: Sendable, Equatable {
   public init(shortcut: Shortcut, app: AppTarget) {
     self.shortcut = shortcut
     self.app = app
-  }
-
-  public var description: String {
-    shortcut.description
   }
 }

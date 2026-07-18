@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-base_vm="${1:-codex-macos-tahoe-xcodegen-base}"
+base_vm="${1:-summond-macos-tahoe-xcodegen-base}"
 job="${2:-test}"
 run_vm=""
 

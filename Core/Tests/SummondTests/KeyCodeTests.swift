@@ -40,26 +40,6 @@ struct KeyCodeTests {
     #expect(flags == CGEventFlags())
   }
 
-  @Test("Every key alias reverse-maps to a canonical key that resolves to the same code")
-  func keyReverseLookupRoundTripsAliases() throws {
-    for name in KeyCode.allKeyNames {
-      let code = try #require(KeyCode.resolve(name), "Expected \(name) to resolve")
-      let canonicalName = try #require(KeyCode.name(for: code))
-
-      #expect(KeyCode.resolve(canonicalName) == code)
-    }
-  }
-
-  @Test("Every modifier alias reverse-maps to canonical modifiers that resolve to the same flags")
-  func modifierReverseLookupRoundTripsAliases() throws {
-    for name in KeyCode.allModifierNames {
-      let flags = try #require(KeyCode.resolveModifiers([name]), "Expected \(name) to resolve")
-      let canonicalNames = KeyCode.modifierNames(for: flags)
-
-      #expect(KeyCode.resolveModifiers(canonicalNames) == flags)
-    }
-  }
-
   @Test("Classifies literal-text keys for the typing-shadow warning")
   func classifiesLiteralTextKeys() {
     // Letters, digits, space, and punctuation produce literal text.

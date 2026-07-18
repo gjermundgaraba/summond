@@ -92,7 +92,7 @@ struct ShortcutEditorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("editor.behaviorPicker")
 
-        SpacesAnimationView(mode: draft.mode)
+        SpacesIllustration(mode: draft.mode)
           .frame(width: 190, height: 88)
           .accessibilityHidden(true)
       }
@@ -167,6 +167,32 @@ struct ShortcutEditorView: View {
       } else {
         onCancel()
       }
+    }
+  }
+}
+
+/// A static, per-mode illustration of the window behavior, drawn with a single
+/// SF Symbol on a tinted panel. Purely decorative (the picker labels carry the
+/// meaning), so it is `accessibilityHidden` by the caller.
+private struct SpacesIllustration: View {
+  let mode: AppOpenMode
+
+  var body: some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.18))
+      Image(systemName: symbol)
+        .font(.system(size: 42, weight: .regular))
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(.tint)
+    }
+  }
+
+  private var symbol: String {
+    switch mode {
+    case .launch: "macwindow"
+    case .newWindow: "macwindow.badge.plus"
+    case .move: "arrow.left.arrow.right"
     }
   }
 }
