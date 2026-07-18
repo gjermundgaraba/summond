@@ -102,7 +102,7 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
   }
 
   private func makeRemoteProxy(
-    errorHandler: @escaping (Error) -> Void = { _ in }
+    errorHandler: @escaping (Error) -> Void
   ) -> SummondAgentXPC {
     connectionProxy().remoteObjectProxyWithErrorHandler(errorHandler) as! SummondAgentXPC
   }

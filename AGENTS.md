@@ -7,18 +7,5 @@ concurrency, failure semantics, bundle layout, and signing/notarization notes.
 
 ## Commands
 
-```bash
-make help
-make project
-make build
-make dev-build
-make core-build
-make test
-make core-test
-make app-test
-make lint
-make lint-fix
-make release-local
-make release-build
-make release
-```
+`make help` lists every build, test, lint, and packaging target. The CI gate is
+`make lint`, `make core-test`, and `make app-test`.

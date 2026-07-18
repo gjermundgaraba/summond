@@ -117,8 +117,13 @@ struct ContentView: View {
       )
       .accessibilityIdentifier("configuration.notice")
       .padding([.horizontal, .top], 16)
-    case .setupRequired, .degraded:
-      SystemHealthBanner(health: model.health) { action in
+    case .setupRequired(let requirement):
+      SystemHealthBanner(notice: HealthNotice(setup: requirement)) { action in
+        perform(action)
+      }
+      .padding([.horizontal, .top], 16)
+    case .degraded(let issue):
+      SystemHealthBanner(notice: HealthNotice(issue: issue)) { action in
         perform(action)
       }
       .padding([.horizontal, .top], 16)
@@ -327,11 +332,10 @@ private enum HealthAction {
 }
 
 private struct SystemHealthBanner: View {
-  var health: SystemHealth
+  var notice: HealthNotice
   var action: (HealthAction) -> Void
 
   var body: some View {
-    let notice = HealthNotice(health: health)
     NoticeBanner(
       symbol: notice.symbol,
       color: notice.color,
@@ -432,37 +436,33 @@ private struct HealthStatusStrip: View {
 }
 
 private struct HealthNotice {
-  var symbol = "exclamationmark.triangle.fill"
-  var color = Color.orange
+  let symbol = "exclamationmark.triangle.fill"
+  let color = Color.orange
   var title: String
   var message: String
   var actionTitle: String?
   var action: HealthAction?
 
-  init(health: SystemHealth) {
-    switch health {
-    case .ready:
-      title = "Summond Is Ready"
-      message = "Your shortcuts are active."
-    case .setupRequired(let requirement):
-      title = "Finish Setting Up Summond"
-      message = requirement.message
-      actionTitle = "Open Setup"
-      action = .openSetup
-    case .degraded(let issue):
-      title = issue.title
-      message = issue.message
-      switch issue {
-      case .agentUnavailable, .eventTapFailure, .eventTapInactive:
-        actionTitle = "Restart Service"
-        action = .restartService
-      case .reloadFailed:
-        actionTitle = "Retry Reload"
-        action = .retryReload
-      case .configurationUnavailable, .configurationCorrupt, .configurationInvalid,
-        .unresolvedApplications:
-        break
-      }
+  init(setup requirement: SetupRequirement) {
+    title = "Finish Setting Up Summond"
+    message = requirement.message
+    actionTitle = "Open Setup"
+    action = .openSetup
+  }
+
+  init(issue: SystemIssue) {
+    title = issue.title
+    message = issue.message
+    switch issue {
+    case .agentUnavailable, .eventTapFailure, .eventTapInactive:
+      actionTitle = "Restart Service"
+      action = .restartService
+    case .reloadFailed:
+      actionTitle = "Retry Reload"
+      action = .retryReload
+    case .configurationUnavailable, .configurationCorrupt, .configurationInvalid,
+      .unresolvedApplications:
+      break
     }
   }
 }

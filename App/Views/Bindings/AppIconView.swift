@@ -25,28 +25,14 @@ struct AppIconView: View {
 struct AppRowIcon: View {
   let url: URL?
   var size: CGFloat = 24
+
   @State private var image: NSImage?
 
   var body: some View {
+    // Resolve the icon off `body`, re-running when a reused row's URL changes.
     AppIconView(image: image, size: size)
       .task(id: url) {
-        guard let url else {
-          image = nil
-          return
-        }
-        image = nil
-        if let hit = AppIconCache.shared.cached(url) {
-          guard !Task.isCancelled else {
-            return
-          }
-          image = hit
-        } else {
-          let loadedImage = await AppIconCache.shared.load(url)
-          guard !Task.isCancelled, self.url == url else {
-            return
-          }
-          image = loadedImage
-        }
+        image = url.map { AppIconCache.shared.icon(for: $0) }
       }
   }
 }

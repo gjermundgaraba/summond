@@ -176,18 +176,17 @@ private final class StatusMenuModel {
   private(set) var reloadError: String?
 
   private let agentClient: any AgentClientProtocol
-  @ObservationIgnored
-  private var refreshTask: Task<Void, Never>?
 
   init(agentClient: any AgentClientProtocol = AgentClient()) {
     self.agentClient = agentClient
-    refreshTask = Task { [weak self] in
-      await self?.runRefreshLoop()
+    // The menu bar model is owned by the process-lifetime MenuBarExtra scene and
+    // is never torn down, so the poll loop just runs until the process exits.
+    Task { [weak self] in
+      while let self {
+        await self.refresh()
+        try? await Task.sleep(nanoseconds: 30_000_000_000)
+      }
     }
-  }
-
-  deinit {
-    refreshTask?.cancel()
   }
 
   var health: SystemHealth {
@@ -230,14 +229,6 @@ private final class StatusMenuModel {
     openMainApplication(path: "settings")
   }
 
-  private func runRefreshLoop() async {
-    await refresh()
-    while !Task.isCancelled {
-      try? await Task.sleep(nanoseconds: 30_000_000_000)
-      await refresh()
-    }
-  }
-
   private func openMainApplication(path: String) {
     if let url = URL(string: "summond://\(path)"), NSWorkspace.shared.open(url) {
       return
@@ -253,13 +244,14 @@ private final class StatusMenuModel {
     var candidate = Bundle.main.bundleURL.deletingLastPathComponent()
     for _ in 0..<7 {
       if candidate.pathExtension == "app",
-        Bundle(url: candidate)?.bundleIdentifier == "net.garaba.summond"
+        Bundle(url: candidate)?.bundleIdentifier == SummondBundleIdentifiers.app
       {
         return candidate
       }
       candidate = candidate.deletingLastPathComponent()
     }
 
-    return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.garaba.summond")
+    return NSWorkspace.shared.urlForApplication(
+      withBundleIdentifier: SummondBundleIdentifiers.app)
   }
 }

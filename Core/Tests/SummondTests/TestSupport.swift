@@ -39,8 +39,7 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
     }
 
     return lock.withLock {
-      resultsByBundleID[identity.bundleIdentifier]
-        ?? .launched(bundleIdentifier: identity.bundleIdentifier)
+      resultsByBundleID[identity.bundleIdentifier] ?? .launched
     }
   }
 
@@ -89,17 +88,17 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
   private var moveSuccess = true
   private var launchLog: [String] = []
   private var activatedBundleIDLog: [String] = []
-  private var activationActivatesAllWindowsLog: [Bool] = []
   private var newWindowRequestLog: [String] = []
   private var moveRequestLog: [[CGWindowID]] = []
 
-  func setRunningApp(_ app: RunningApplicationState?) {
+  func setRunningApp(
+    bundleID: String = "com.apple.safari",
+    processID: pid_t,
+    isTerminated: Bool = false
+  ) {
     lock.withLock {
-      guard let app else {
-        runningApps.removeAll()
-        return
-      }
-      runningApps[app.bundleIdentifier] = app
+      runningApps[bundleID] = RunningApplicationState(
+        processID: processID, isTerminated: isTerminated)
     }
   }
 
@@ -164,10 +163,9 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
     lock.withLock { appsOnCurrentSpace.contains(processID) }
   }
 
-  func activateApplication(bundleIdentifier: String, activatesAllWindows: Bool) async -> Bool {
+  func activateApplication(bundleIdentifier: String) async -> Bool {
     lock.withLock {
       activatedBundleIDLog.append(bundleIdentifier)
-      activationActivatesAllWindowsLog.append(activatesAllWindows)
       return activationSuccess
     }
   }
@@ -215,10 +213,6 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
 
   func activatedBundleIDs() -> [String] {
     lock.withLock { activatedBundleIDLog }
-  }
-
-  func activationActivatesAllWindows() -> [Bool] {
-    lock.withLock { activationActivatesAllWindowsLog }
   }
 
   func newWindowRequests() -> [String] {
@@ -269,26 +263,4 @@ func makeCompiledBinding(
     shortcut: try BindingCompiler.compileShortcut(binding.shortcut),
     identity: makeIdentity(bundleID: bundleID)
   )
-}
-
-private let workingDirectoryLock = NSLock()
-
-func withTemporaryCurrentDirectory<T>(
-  _ body: (URL) throws -> T
-) throws -> T {
-  try workingDirectoryLock.withLock {
-    let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-      UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-    let previousDirectory = FileManager.default.currentDirectoryPath
-    let changed = FileManager.default.changeCurrentDirectoryPath(tempDirectory.path)
-    precondition(changed, "failed to change current directory")
-
-    defer {
-      _ = FileManager.default.changeCurrentDirectoryPath(previousDirectory)
-      try? FileManager.default.removeItem(at: tempDirectory)
-    }
-
-    return try body(tempDirectory)
-  }
 }

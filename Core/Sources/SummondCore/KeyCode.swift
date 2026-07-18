@@ -45,9 +45,6 @@ public enum KeyCode {
     return literalTextCanonicalKeyNames.contains(canonicalName)
   }
 
-  static let allKeyNames: [String] = keyAliases.flatMap(\.names)
-  static let allModifierNames: [String] = modifierAliases.flatMap(\.names)
-
   private static let canonicalModifierOrder: [(name: String, flag: CGEventFlags)] = [
     ("cmd", .maskCommand),
     ("shift", .maskShift),

@@ -142,7 +142,7 @@
 
     private static func seededStore(shortcuts: [StoredBinding]) -> InMemoryConfigurationStore {
       let store = InMemoryConfigurationStore()
-      try! store.save(SummondConfigurationV1(bindings: shortcuts))
+      try! store.save(SummondConfiguration(bindings: shortcuts))
       return store
     }
 

@@ -271,10 +271,6 @@ final class ShortcutRecorderNSView: NSView {
   }
 
   private func handle(_ event: NSEvent) {
-    guard isRecording else {
-      return
-    }
-
     if event.keyCode == 0x35 {
       cancelRecordingIfNeeded()
       return

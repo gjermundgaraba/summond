@@ -8,10 +8,7 @@ import Testing
 struct ConfigurationStoreTests {
   @Test("Missing data loads as a fresh empty configuration")
   func absentDataLoadsFresh() {
-    let result = InMemoryConfigurationStore().load()
-
-    #expect(result == .fresh(.empty))
-    #expect(result.configuration?.bindings.isEmpty == true)
+    #expect(InMemoryConfigurationStore().load() == .fresh(.empty))
   }
 
   @Test("Shared defaults suite is not any product bundle identifier")
@@ -39,7 +36,7 @@ struct ConfigurationStoreTests {
     let writer = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
     let reader = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
     let bindingID = try #require(UUID(uuidString: "A30A2D05-2481-4C28-8F61-30475F64C391"))
-    let configuration = SummondConfigurationV1(
+    let configuration = SummondConfiguration(
       bindings: [
         try stored(
           id: bindingID,
@@ -57,13 +54,11 @@ struct ConfigurationStoreTests {
     #expect(reader.load() == .loaded(configuration))
   }
 
-  @Test("JSON round trip preserves binding UUIDs")
-  func jsonRoundTripPreservesIDs() throws {
-    let id = UUID()
-    let configuration = SummondConfigurationV1(
+  @Test("JSON round trip preserves bindings verbatim")
+  func jsonRoundTrip() throws {
+    let configuration = SummondConfiguration(
       bindings: [
         StoredBinding(
-          id: id,
           shortcut: Shortcut(key: "F5", mods: ["CMD", "Shift"]),
           target: try AppTarget(bundleID: "com.apple.Safari", mode: .newWindow)
         )
@@ -73,13 +68,8 @@ struct ConfigurationStoreTests {
     let store = InMemoryConfigurationStore()
 
     try store.save(configuration)
-    let loaded = try #require(store.load().configuration)
 
-    #expect(loaded == configuration)
-    #expect(loaded.bindings[0].id == id)
-    #expect(loaded.bindings[0].shortcut.key == "f5")
-    #expect(loaded.bindings[0].shortcut.mods == ["cmd", "shift"])
-    #expect(loaded.verboseLogging == true)
+    #expect(store.load() == .loaded(configuration))
   }
 
   @Test("Garbage data loads as corrupt")
@@ -92,11 +82,12 @@ struct ConfigurationStoreTests {
     }
   }
 
-  @Test("Wrong schema version loads as corrupt")
-  func wrongSchemaVersionLoadsCorrupt() throws {
-    let data = try JSONEncoder().encode(
-      SummondConfigurationV1(schemaVersion: 2, bindings: [], verboseLogging: false)
-    )
+  @Test("Unrecognized schema version loads as corrupt")
+  func unrecognizedSchemaVersionLoadsCorrupt() throws {
+    let data = Data(
+      """
+      { "schemaVersion": 2, "bindings": [], "verboseLogging": false }
+      """.utf8)
     let store = InMemoryConfigurationStore(data: data)
 
     #expect(store.load() == .corrupt(.unsupportedSchemaVersion(2)))
@@ -104,7 +95,7 @@ struct ConfigurationStoreTests {
 
   @Test("Save rejects invalid configurations")
   func saveRejectsInvalidConfigurations() throws {
-    let cases: [(SummondConfigurationV1, ConfigurationValidationError)] = [
+    let cases: [(SummondConfiguration, ConfigurationValidationError)] = [
       (
         configuration(
           shortcut: Shortcut(key: "nonexistent", mods: ["cmd"]),
@@ -127,7 +118,7 @@ struct ConfigurationStoreTests {
         .invalidBinding(index: 1, error: .emptyBundleID)
       ),
       (
-        SummondConfigurationV1(
+        SummondConfiguration(
           bindings: [
             try stored(key: "return", mods: ["cmd"], bundleID: "com.apple.Safari"),
             try stored(key: "enter", mods: ["cmd"], bundleID: "com.apple.Terminal"),
@@ -144,97 +135,43 @@ struct ConfigurationStoreTests {
     }
   }
 
-  @Test("Derives app bindings without resolving installed apps")
-  func derivesAppBindings() throws {
-    let configuration = SummondConfigurationV1(
-      bindings: [
-        try stored(
-          id: UUID(),
-          key: "space",
-          mods: ["cmd"],
-          bundleID: "com.example.NotInstalled",
-          mode: .move
-        )
-      ]
-    )
-
-    let bindings = appBindings(from: configuration)
-
-    #expect(
-      bindings == [
-        AppBinding(
-          shortcut: Shortcut(key: "space", mods: ["cmd"]),
-          app: try AppTarget(bundleID: "com.example.NotInstalled", mode: .move)
-        )
-      ])
-  }
-
   @Test("Modifier-less shortcut validates and round trips through JSON")
   func modifierLessShortcutValidatesAndRoundTrips() throws {
-    let id = UUID()
-    let configuration = SummondConfigurationV1(
-      bindings: [
-        try stored(
-          id: id,
-          key: "f5",
-          mods: [],
-          bundleID: "com.apple.Safari"
-        )
-      ]
+    let configuration = SummondConfiguration(
+      bindings: [try stored(key: "f5", mods: [], bundleID: "com.apple.Safari")]
     )
     let store = InMemoryConfigurationStore()
 
     try validateConfiguration(configuration)
     try store.save(configuration)
-    let loaded = try #require(store.load().configuration)
 
-    #expect(loaded.bindings[0].id == id)
-    #expect(loaded.bindings[0].shortcut == Shortcut(key: "f5", mods: []))
-  }
-}
-
-@Suite("App open mode")
-struct AppOpenModeTests {
-  @Test("Parses hyphenated and raw-value spellings")
-  func parsesSpellings() throws {
-    #expect(try AppOpenMode(parsing: "launch") == .launch)
-    #expect(try AppOpenMode(parsing: "new-window") == .newWindow)
-    #expect(try AppOpenMode(parsing: "new_window") == .newWindow)
-    #expect(try AppOpenMode(parsing: "MOVE") == .move)
-  }
-
-  @Test("Rejects unknown modes")
-  func rejectsUnknownModes() {
-    #expect(throws: BindingValidationError.unknownMode("focus")) {
-      try AppOpenMode(parsing: "focus")
-    }
+    #expect(store.load() == .loaded(configuration))
   }
 }
 
 @Suite("Binding compiler")
 struct BindingCompilerTests {
-  @Test("Compiling a single binding fails when the bundle is missing")
-  func unresolvedBundleID() throws {
-    let binding = try makeBinding(bundleID: "com.example.missing")
+  @Test("Compiling reports unresolved bundle IDs without installing them")
+  func reportsUnresolvedBundleIDs() throws {
+    let compiled = try BindingCompiler.compile(
+      [try makeBinding(bundleID: "com.example.missing")],
+      appResolver: TestAppResolver(appsByBundleID: [:])
+    )
 
-    #expect(throws: BindingCompilationError.unresolvedBundleID("com.example.missing")) {
-      try BindingCompiler.compileBinding(
-        binding,
-        appResolver: TestAppResolver(appsByBundleID: [:])
-      )
-    }
+    #expect(compiled.snapshot.count == 0)
+    #expect(compiled.unresolvedBundleIDs == ["com.example.missing"])
   }
 
   @Test("Modifier-less shortcut compiles and matches empty modifier events")
   func modifierLessShortcutCompilesAndMatches() throws {
-    let snapshot = try BindingCompiler.compileBindings(
+    let compiled = try BindingCompiler.compile(
       [try makeBinding(key: "f5", mods: [], bundleID: "com.apple.safari")],
       appResolver: TestAppResolver(appsByBundleID: [
         "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
       ])
     )
 
-    let match = snapshot.match(keyCode: 0x60, modifiers: CGEventFlags())
+    let match = compiled.snapshot.match(keyCode: 0x60, modifiers: CGEventFlags())
 
     #expect(match?.identity.bundleIdentifier == "com.apple.safari")
     #expect(match?.binding.shortcut.mods == [])
@@ -242,7 +179,7 @@ struct BindingCompilerTests {
 
   @Test("Modifier-less and modified shortcuts on the same key are distinct")
   func modifierLessAndModifiedSameKeyAreDistinct() throws {
-    let snapshot = try BindingCompiler.compileBindings(
+    let compiled = try BindingCompiler.compile(
       [
         try makeBinding(key: "f5", mods: [], bundleID: "com.apple.safari"),
         try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.Terminal"),
@@ -253,23 +190,41 @@ struct BindingCompilerTests {
       ])
     )
 
-    #expect(snapshot.count == 2)
+    #expect(compiled.snapshot.count == 2)
     #expect(
-      snapshot.match(keyCode: 0x60, modifiers: CGEventFlags())?.identity.bundleIdentifier
+      compiled.snapshot.match(keyCode: 0x60, modifiers: CGEventFlags())?.identity.bundleIdentifier
         == "com.apple.safari"
     )
     #expect(
-      snapshot.match(keyCode: 0x60, modifiers: .maskCommand)?.identity.bundleIdentifier
+      compiled.snapshot.match(keyCode: 0x60, modifiers: .maskCommand)?.identity.bundleIdentifier
         == "com.apple.Terminal"
     )
+  }
+
+  @Test("Compiling rejects a duplicate shortcut")
+  func rejectsDuplicateShortcut() throws {
+    #expect(
+      throws: ConfigurationValidationError.duplicateShortcut(index: 2, description: "cmd+f5")
+    ) {
+      try BindingCompiler.compile(
+        [
+          try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari"),
+          try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.Terminal"),
+        ],
+        appResolver: TestAppResolver(appsByBundleID: [
+          "com.apple.safari": makeIdentity(bundleID: "com.apple.safari"),
+          "com.apple.Terminal": makeIdentity(bundleID: "com.apple.Terminal"),
+        ])
+      )
+    }
   }
 }
 
 private func configuration(
   shortcut: Shortcut,
   target: AppTarget
-) -> SummondConfigurationV1 {
-  SummondConfigurationV1(bindings: [
+) -> SummondConfiguration {
+  SummondConfiguration(bindings: [
     StoredBinding(shortcut: shortcut, target: target)
   ])
 }

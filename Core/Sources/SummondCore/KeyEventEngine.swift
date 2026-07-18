@@ -252,7 +252,7 @@ public final class KeyEventEngine: @unchecked Sendable {
       }
 
       logger.info(
-        "matched: \(binding.description, privacy: .private) -> \(binding.identity.bundleIdentifier, privacy: .private)"
+        "matched: \(binding.binding.shortcut.description, privacy: .private) -> \(binding.identity.bundleIdentifier, privacy: .private)"
       )
       let appOpener = appOpener
       Task {

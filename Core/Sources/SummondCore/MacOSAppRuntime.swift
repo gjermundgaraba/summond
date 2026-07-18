@@ -15,11 +15,6 @@ public struct InstalledAppResolver: AppResolver {
     return Self.identity(forApplicationURL: url)
   }
 
-  public static func identity(forApplicationPath path: String) -> AppIdentity? {
-    let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-    return identity(forApplicationURL: url)
-  }
-
   public static func identity(forApplicationURL url: URL) -> AppIdentity? {
     let standardizedURL = url.standardizedFileURL
     guard let bundleIdentifier = Bundle(url: standardizedURL)?.bundleIdentifier else {
@@ -37,7 +32,7 @@ protocol MacOSAppRuntimeSystem: Sendable {
   func runningApplication(bundleIdentifier: String) -> RunningApplicationState?
   func hasWindowOnCurrentSpace(processID: pid_t) -> Bool
   func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID]
-  func activateApplication(bundleIdentifier: String, activatesAllWindows: Bool) async -> Bool
+  func activateApplication(bundleIdentifier: String) async -> Bool
   func launchApplication(identity: AppIdentity) async -> String?
   func openNewWindow(for identity: AppIdentity) async -> Bool
   func moveWindowsToCurrentSpace(_ windowIDs: [CGWindowID], processID: pid_t) async -> Bool
@@ -93,20 +88,14 @@ public struct MacOSAppRuntime: AppRuntime {
     }
 
     guard await system.moveWindowsToCurrentSpace(windowIDs, processID: app.processID) else {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "failed to move windows to current space"
-      )
+      return .failed(reason: "failed to move windows to current space")
     }
 
     guard await activateApplication(identity) else {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "failed to activate app after moving windows"
-      )
+      return .failed(reason: "failed to activate app after moving windows")
     }
 
-    return .movedToCurrentSpace(bundleIdentifier: identity.bundleIdentifier)
+    return .movedToCurrentSpace
   }
 
   private func runningApp(_ identity: AppIdentity) -> RunningApplicationState? {
@@ -122,13 +111,10 @@ public struct MacOSAppRuntime: AppRuntime {
 
   private func activateExistingWindow(_ identity: AppIdentity) async -> OpenAppResult {
     guard await activateApplication(identity) else {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "failed to activate existing window"
-      )
+      return .failed(reason: "failed to activate existing window")
     }
 
-    return .activatedExistingWindow(bundleIdentifier: identity.bundleIdentifier)
+    return .activatedExistingWindow
   }
 
   private func openNewWindowOnCurrentSpace(
@@ -136,49 +122,37 @@ public struct MacOSAppRuntime: AppRuntime {
     app: RunningApplicationState
   ) async -> OpenAppResult {
     guard await system.openNewWindow(for: identity) else {
-      return .failed(bundleIdentifier: identity.bundleIdentifier, reason: "dock menu failed")
+      return .failed(reason: "dock menu failed")
     }
 
     let windowAppeared: Bool
     do {
       windowAppeared = try await system.waitForWindowOnCurrentSpace(processID: app.processID)
     } catch {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "cancelled while waiting for new window"
-      )
+      return .failed(reason: "cancelled while waiting for new window")
     }
 
     guard windowAppeared else {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "new window did not appear on current space"
-      )
+      return .failed(reason: "new window did not appear on current space")
     }
 
     guard await activateApplication(identity) else {
-      return .failed(
-        bundleIdentifier: identity.bundleIdentifier,
-        reason: "failed to activate app after opening new window"
-      )
+      return .failed(reason: "failed to activate app after opening new window")
     }
 
-    return .openedNewWindow(bundleIdentifier: identity.bundleIdentifier)
+    return .openedNewWindow
   }
 
   private func activateApplication(_ identity: AppIdentity) async -> Bool {
-    await system.activateApplication(
-      bundleIdentifier: identity.bundleIdentifier,
-      activatesAllWindows: true
-    )
+    await system.activateApplication(bundleIdentifier: identity.bundleIdentifier)
   }
 
   private func launch(_ identity: AppIdentity) async -> OpenAppResult {
     if let reason = await system.launchApplication(identity: identity) {
-      return .failed(bundleIdentifier: identity.bundleIdentifier, reason: reason)
+      return .failed(reason: reason)
     }
 
-    return .launched(bundleIdentifier: identity.bundleIdentifier)
+    return .launched
   }
 }
 
@@ -209,13 +183,12 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
     }
 
     return RunningApplicationState(
-      bundleIdentifier: bundleIdentifier,
       processID: app.processIdentifier,
       isTerminated: app.isTerminated
     )
   }
 
-  func activateApplication(bundleIdentifier: String, activatesAllWindows: Bool) async -> Bool {
+  func activateApplication(bundleIdentifier: String) async -> Bool {
     guard
       let app = NSRunningApplication.runningApplications(
         withBundleIdentifier: bundleIdentifier
@@ -229,11 +202,7 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
     }
 
     let activated = await MainActor.run {
-      var options: NSApplication.ActivationOptions = []
-      if activatesAllWindows {
-        options.insert(.activateAllWindows)
-      }
-      return app.activate(options: options)
+      app.activate(options: .activateAllWindows)
     }
     if !activated {
       logger.warning(

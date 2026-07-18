@@ -10,11 +10,11 @@ struct KeyEventEngineTests {
     let resolver = TestAppResolver(appsByBundleID: [
       "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
     ])
-    let snapshot = try BindingCompiler.compileBindings(
+    let compiled = try BindingCompiler.compile(
       [try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")],
       appResolver: resolver
     )
-    return KeyEventEngine(snapshot: snapshot, runtime: runtime)
+    return KeyEventEngine(snapshot: compiled.snapshot, runtime: runtime)
   }
 
   private func keyDown(_ name: String, autorepeat: Bool) throws -> CGEvent {

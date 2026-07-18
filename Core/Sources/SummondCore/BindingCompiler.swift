@@ -1,11 +1,6 @@
 import CoreGraphics
 import Foundation
 
-public enum BindingCompilationError: Error, Equatable, Sendable {
-  case validation(BindingValidationError)
-  case unresolvedBundleID(String)
-}
-
 public struct CompiledShortcut: Sendable, Equatable, Hashable {
   public let keyCode: CGKeyCode
   public let modifiers: CGEventFlags
@@ -31,10 +26,6 @@ public struct CompiledAppBinding: Sendable, Equatable {
     self.shortcut = shortcut
     self.identity = identity
   }
-
-  public var description: String {
-    binding.description
-  }
 }
 
 public struct BindingSnapshot: Sendable {
@@ -47,11 +38,7 @@ public struct BindingSnapshot: Sendable {
   }
 
   public func match(keyCode: CGKeyCode, modifiers: CGEventFlags) -> CompiledAppBinding? {
-    binding(for: CompiledShortcut(keyCode: keyCode, modifiers: modifiers))
-  }
-
-  public func binding(for shortcut: CompiledShortcut) -> CompiledAppBinding? {
-    bindingsByTrigger[shortcut]
+    bindingsByTrigger[CompiledShortcut(keyCode: keyCode, modifiers: modifiers)]
   }
 
   public var count: Int {
@@ -59,9 +46,21 @@ public struct BindingSnapshot: Sendable {
   }
 }
 
-public enum BindingCompiler {
-  public typealias UnresolvedBinding = (index: Int, bundleID: String)
+/// The outcome of compiling a configuration's bindings: the active snapshot the
+/// engine installs, plus the bundle IDs that could not be resolved to an
+/// installed app. Unresolved bundles are degraded state, not an error — the
+/// resolvable bindings still compile and run.
+public struct CompiledBindings: Sendable {
+  public let snapshot: BindingSnapshot
+  public let unresolvedBundleIDs: [String]
 
+  public init(snapshot: BindingSnapshot, unresolvedBundleIDs: [String]) {
+    self.snapshot = snapshot
+    self.unresolvedBundleIDs = unresolvedBundleIDs
+  }
+}
+
+public enum BindingCompiler {
   public static func compileShortcut(_ shortcut: Shortcut) throws -> CompiledShortcut {
     guard let keyCode = KeyCode.resolve(shortcut.key) else {
       throw BindingValidationError.unknownKey(shortcut.key)
@@ -75,64 +74,16 @@ public enum BindingCompiler {
     return CompiledShortcut(keyCode: keyCode, modifiers: modifiers)
   }
 
-  public static func compileBinding(
-    _ binding: AppBinding,
-    appResolver: any AppResolver
-  ) throws -> CompiledAppBinding {
-    let shortcut: CompiledShortcut
-    do {
-      shortcut = try compileShortcut(binding.shortcut)
-    } catch let error as BindingValidationError {
-      throw BindingCompilationError.validation(error)
-    }
-
-    guard let identity = appResolver.resolve(bundleID: binding.app.bundleID) else {
-      throw BindingCompilationError.unresolvedBundleID(binding.app.bundleID)
-    }
-
-    return CompiledAppBinding(binding: binding, shortcut: shortcut, identity: identity)
-  }
-
-  public static func compileBindings(
+  /// Compiles bindings into the active snapshot, skipping (but reporting) any
+  /// whose bundle ID is not installed. Structurally invalid bindings — an
+  /// unknown key/modifier or a duplicate shortcut — throw.
+  public static func compile(
     _ bindings: [AppBinding],
     appResolver: any AppResolver
-  ) throws -> BindingSnapshot {
-    var compiledBindings: [CompiledShortcut: CompiledAppBinding] = [:]
-
-    for (offset, binding) in bindings.enumerated() {
-      let index = offset + 1
-      let compiledBinding: CompiledAppBinding
-      do {
-        compiledBinding = try compileBinding(binding, appResolver: appResolver)
-      } catch let error as BindingCompilationError {
-        switch error {
-        case .validation(let validationError):
-          throw BindingConfigError.invalidBinding(index: index, error: validationError)
-        case .unresolvedBundleID(let bundleID):
-          throw BindingConfigError.unresolvedBundleID(index: index, bundleID: bundleID)
-        }
-      }
-
-      if compiledBindings[compiledBinding.shortcut] != nil {
-        throw BindingConfigError.duplicateShortcut(
-          index: index,
-          description: compiledBinding.description
-        )
-      }
-
-      compiledBindings[compiledBinding.shortcut] = compiledBinding
-    }
-
-    return BindingSnapshot(bindingsByTrigger: compiledBindings)
-  }
-
-  public static func compileBindingsSkippingUnresolved(
-    _ bindings: [AppBinding],
-    appResolver: any AppResolver
-  ) throws -> (snapshot: BindingSnapshot, unresolved: [UnresolvedBinding]) {
+  ) throws -> CompiledBindings {
     var compiledBindings: [CompiledShortcut: CompiledAppBinding] = [:]
     var seenShortcuts: Set<CompiledShortcut> = []
-    var unresolved: [UnresolvedBinding] = []
+    var unresolvedBundleIDs: [String] = []
 
     for (offset, binding) in bindings.enumerated() {
       let index = offset + 1
@@ -140,19 +91,18 @@ public enum BindingCompiler {
       do {
         shortcut = try compileShortcut(binding.shortcut)
       } catch let error as BindingValidationError {
-        throw BindingConfigError.invalidBinding(index: index, error: error)
+        throw ConfigurationValidationError.invalidBinding(index: index, error: error)
       }
 
-      if seenShortcuts.contains(shortcut) {
-        throw BindingConfigError.duplicateShortcut(
+      guard seenShortcuts.insert(shortcut).inserted else {
+        throw ConfigurationValidationError.duplicateShortcut(
           index: index,
-          description: binding.description
+          description: binding.shortcut.description
         )
       }
-      seenShortcuts.insert(shortcut)
 
       guard let identity = appResolver.resolve(bundleID: binding.app.bundleID) else {
-        unresolved.append((index: index, bundleID: binding.app.bundleID))
+        unresolvedBundleIDs.append(binding.app.bundleID)
         continue
       }
 
@@ -163,6 +113,9 @@ public enum BindingCompiler {
       )
     }
 
-    return (BindingSnapshot(bindingsByTrigger: compiledBindings), unresolved)
+    return CompiledBindings(
+      snapshot: BindingSnapshot(bindingsByTrigger: compiledBindings),
+      unresolvedBundleIDs: unresolvedBundleIDs
+    )
   }
 }

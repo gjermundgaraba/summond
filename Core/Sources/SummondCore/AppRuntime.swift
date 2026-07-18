@@ -11,11 +11,11 @@ public struct AppIdentity: Hashable, Sendable {
 }
 
 public enum OpenAppResult: Sendable, Equatable {
-  case launched(bundleIdentifier: String)
-  case activatedExistingWindow(bundleIdentifier: String)
-  case openedNewWindow(bundleIdentifier: String)
-  case movedToCurrentSpace(bundleIdentifier: String)
-  case failed(bundleIdentifier: String, reason: String)
+  case launched
+  case activatedExistingWindow
+  case openedNewWindow
+  case movedToCurrentSpace
+  case failed(reason: String)
 }
 
 public protocol AppResolver: Sendable {
@@ -27,12 +27,10 @@ public protocol AppRuntime: Sendable {
 }
 
 public struct RunningApplicationState: Sendable, Equatable {
-  public let bundleIdentifier: String
   public let processID: pid_t
   public let isTerminated: Bool
 
-  public init(bundleIdentifier: String, processID: pid_t, isTerminated: Bool) {
-    self.bundleIdentifier = bundleIdentifier
+  public init(processID: pid_t, isTerminated: Bool) {
     self.processID = processID
     self.isTerminated = isTerminated
   }

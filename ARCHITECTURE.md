@@ -90,14 +90,14 @@ runtime.
 
 ```
 Preferences draft
-  → validate shortcut, duplicate, mode, bundle-id shape
+  → validate shortcut, duplicate shortcut, and non-empty bundle ID
   → save JSON data to UserDefaults suite net.garaba.summond.shared
   → XPC reloadConfiguration()
   → agent lenient compile
       resolved apps become active bindings
       missing bundle IDs become unresolvedBundleIDs
       hard invalid config preserves previous snapshot
-  → @MainActor snapshot swap in KeyEventEngine
+  → lock-protected snapshot replacement in KeyEventEngine
 ```
 
 The UI validates before save. The agent validates again when it reloads because
@@ -129,10 +129,12 @@ swallowed and the failure is logged.
 
 `launch` performs a normal app launch or activation through `NSWorkspace`.
 
-`new-window` checks whether the app already has a window on the current Space.
-If not, and the app is running elsewhere, the runtime asks the Dock accessibility
-menu for **New Window**, waits for a new current-Space window, and activates the
-app. Failures are logged and are non-fatal.
+**New Window** (Swift `.newWindow`, stored `new_window`) checks whether the app
+already has a window on the current Space using runtime-resolved private SkyLight
+queries. If the app is running but has no window on the current Space — including
+an app with no windows — the runtime asks the Dock accessibility menu for
+**New Window**, waits for a new current-Space window, and activates the app.
+Failures are logged and are non-fatal.
 
 `move` checks for current-Space windows first. If windows exist on another
 Space, it moves them to the current Space and activates the app. Moving relies
@@ -142,11 +144,13 @@ require disabling SIP.
 
 ## Concurrency Model
 
-- `AgentSupervisor` and `KeyEventEngine` are `@MainActor`.
-- The event tap source is installed on the main run loop, so snapshot lookup is
-  not contended.
-- XPC calls enter on Foundation-managed queues and hop to `@MainActor` before
-  touching supervisor or engine state.
+- `AgentSupervisor` is `@MainActor`.
+- `KeyEventEngine` is `@unchecked Sendable`. The event tap runs on a dedicated
+  `net.garaba.summond.keytap` thread with its own run loop. Engine state lives
+  behind an `OSAllocatedUnfairLock`; the tap callback holds the lock only long
+  enough to copy out the snapshot and verbose-logging flag.
+- Engine methods are thread-safe. XPC calls enter on Foundation-managed queues
+  and hop to `@MainActor` for the supervisor.
 - `AppOpener` is an actor that deduplicates in-flight opens per bundle ID.
 - Storage wrappers that can be called from multiple contexts use `NSLock`.
 - Slow app-opening work is async; the key-event hot path stays synchronous.
@@ -168,13 +172,16 @@ require disabling SIP.
 - The LaunchAgent plist uses `KeepAlive` with `SuccessfulExit = false`, so
   launchd restarts crash exits but does not restart intentional successful
   exits.
+- A restart-loop breaker watches recent agent launches. When the throttle trips,
+  the agent defers tap installation, surfaces `.restartLoopDetected`, keeps
+  polling, and recovers once the throttle window clears.
 
 ## Storage Format
 
-Configuration is JSON encoded `SummondConfigurationV1` stored as `Data` in:
+Configuration is JSON encoded `SummondConfiguration` stored as `Data` in:
 
 - suite: `net.garaba.summond.shared`
-- key: `configuration.v1`
+- key: `configuration`
 
 Top-level fields:
 
@@ -205,15 +212,14 @@ and status item pin the remote service to the same team identifier and exact
 `net.garaba.summond.agent` bundle identifier. The team identifier is read at
 runtime with `SecCodeCopySelf`/`SecCodeCopySigningInformation`, so Apple
 Development and Developer ID builds work for whichever team signed the bundle.
-Unsigned or ad-hoc debug builds have no team identifier; the app logs a warning
-and skips the remote requirement, while the agent only skips the incoming-client
-requirement in debug builds. Release agents reject connections when no team
-identifier can be derived.
+When no team identifier can be derived, clients skip the remote requirement.
+Debug and `SMOKE_TEST` agents may also skip the incoming-client requirement;
+non-debug/non-smoke agents reject the connection without a team ID.
 
 ## Packaging Layout
 
-XcodeGen creates three targets and the main app post-build script assembles this
-bundle layout:
+XcodeGen creates three app targets plus unit and UI test targets. The built main
+app has this bundle layout:
 
 ```text
 Summond.app/
@@ -225,6 +231,9 @@ Summond.app/
       LaunchAgents/net.garaba.summond.agent.plist
       LoginItems/SummondStatus.app
 ```
+
+A post-build script embeds `SummondAgent.app`, the LaunchAgent plist, and
+`SummondStatus.app` into that bundle.
 
 The LaunchAgent plist declares:
 
@@ -249,19 +258,20 @@ enabled, the app sandbox is disabled, and no target currently needs custom
 entitlements.
 
 `scripts/release.sh` uses a Release build plus manual re-sign flow because the
-bundle contains a nested login item and a LaunchAgent executable. Signing order
-is innermost first:
+bundle contains a nested login item and a nested `SummondAgent` app bundle.
+Signing order is innermost first:
 
 1. `Contents/Library/LoginItems/SummondStatus.app`
 2. `Contents/MacOS/SummondAgent.app`
 3. `Summond.app`
 
-Every signing command uses `--options runtime --timestamp --force`. Release mode
-requires a Developer ID Application identity, a team ID, and a notarytool
-keychain profile; it zips with `ditto --keepParent`, submits with
-`notarytool --wait`, staples, validates, and reruns verification. Local mode
-signs with the provided identity, skips notarization, and treats trust-policy
-verification failures as warnings.
+Every signing command uses `--options runtime --force`. Release and local
+signing use `--timestamp`; smoke uses `--timestamp=none`. Release mode requires
+a Developer ID Application identity, a team ID, and a notarytool keychain
+profile; it zips with `ditto --keepParent`, submits with `notarytool --wait`,
+staples, validates, and reruns verification. Local mode signs with the provided
+identity, skips notarization, and treats trust-policy verification failures as
+warnings.
 
 ## Testability
 
@@ -280,7 +290,7 @@ Run core tests with:
 make core-test
 ```
 
-Run the full repository test suite with:
+Run the host unit suite (Core + app) with:
 
 ```bash
 make test
@@ -302,3 +312,9 @@ The agent's cross-process surface is covered in two layers:
   cover `SMAppService` registration, Login Items approval, the team-signed
   requirement, or `SpawnConstraint`, which need a signed/pre-approved Mac and
   stay manual.
+
+The Tart UI harness (`UITests/SummondUITests.swift`) exercises real SwiftUI
+views, the app model, and configuration persistence in AppKit-hosted windows.
+Production `WindowGroup`/`Settings` presentation, menu shortcuts, the
+`summond://` deep link / `onOpenURL`, window placement/restoration, and
+`scenePhase` reactivation stay manual.

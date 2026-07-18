@@ -25,7 +25,7 @@ final class SummondModel {
   private let statusItemService: any LoginItemServiceManaging
   private let appCatalog: any AppDisplayResolving
 
-  private(set) var configuration: SummondConfigurationV1
+  private(set) var configuration: SummondConfiguration
   private(set) var loadState: LoadState
   private(set) var serviceStatus: ServiceRegistrationStatus
   private(set) var statusItemStatus: ServiceRegistrationStatus
@@ -52,7 +52,7 @@ final class SummondModel {
     storage: ConfigurationStorage,
     agentClient: any AgentClientProtocol = AgentClient(),
     agentService: any LoginItemServiceManaging = LoginItemService(
-      agentPlistName: "net.garaba.summond.agent.plist"
+      agentPlistName: SummondBundleIdentifiers.agentPlistName
     ),
     statusItemService: any LoginItemServiceManaging = LoginItemService(
       loginItemIdentifier: SummondBundleIdentifiers.statusItem
@@ -156,7 +156,7 @@ final class SummondModel {
           issues.append(.unsupportedKey(key))
         case .unknownModifiers(let modifiers):
           issues.append(.unsupportedModifiers(modifiers))
-        case .unknownMode, .emptyBundleID:
+        case .emptyBundleID:
           issues.append(.unsupportedKey(shortcut.key))
         }
       } catch {
@@ -194,7 +194,7 @@ final class SummondModel {
     return issues
   }
 
-  func saveShortcut(_ draft: ShortcutEditorDraft) async -> SaveShortcutResult {
+  func saveShortcut(_ draft: ShortcutEditorDraft) async -> ConfigurationMutationResult {
     let issues = validationIssues(for: draft)
     guard issues.isEmpty else {
       return .invalid(issues)
@@ -224,18 +224,11 @@ final class SummondModel {
       next.bindings[index] = binding
     }
 
-    switch await persist(next) {
-    case .saved:
-      return .saved
-    case .savedButReloadFailed(let message):
-      return .savedButReloadFailed(message)
-    case .failed(let message):
-      return .failed(message)
-    }
+    return await persist(next)
   }
 
   @discardableResult
-  func deleteShortcut(id: UUID) async -> ConfigurationUpdateResult {
+  func deleteShortcut(id: UUID) async -> ConfigurationMutationResult {
     guard configuration.bindings.contains(where: { $0.id == id }) else {
       return .failed("This shortcut no longer exists.")
     }
@@ -245,7 +238,7 @@ final class SummondModel {
   }
 
   @discardableResult
-  func setVerboseLogging(_ isEnabled: Bool) async -> ConfigurationUpdateResult {
+  func setVerboseLogging(_ isEnabled: Bool) async -> ConfigurationMutationResult {
     guard configuration.verboseLogging != isEnabled else {
       return .saved
     }
@@ -255,7 +248,7 @@ final class SummondModel {
   }
 
   @discardableResult
-  func resetCorruptConfiguration() async -> ConfigurationUpdateResult {
+  func resetCorruptConfiguration() async -> ConfigurationMutationResult {
     await persist(.empty)
   }
 
@@ -372,7 +365,7 @@ final class SummondModel {
     )
   }
 
-  private func persist(_ next: SummondConfigurationV1) async -> ConfigurationUpdateResult {
+  private func persist(_ next: SummondConfiguration) async -> ConfigurationMutationResult {
     guard !isSaving else {
       return .failed("Another change is still being saved.")
     }

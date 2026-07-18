@@ -1,8 +1,8 @@
-.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon release-local release-build release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
-BASE_VM ?= codex-macos-tahoe-xcodegen-base
+BASE_VM ?= summond-macos-tahoe-xcodegen-base
 PROJECT := Summond.xcodeproj
 SCHEME := Summond
 DESTINATION ?= platform=macOS
@@ -23,6 +23,7 @@ help:
 		'  make tart-ensure-base  Create the reusable Tart base VM if missing' \
 		'  make lint           Run swift-format lint' \
 		'  make lint-fix       Apply swift-format formatting' \
+		'  make icon           Regenerate Resources/AppIcon.icns from the vector generator' \
 		'  make release-local  Create local signed Release app/zip without notarization' \
 		'  make release-build  Alias for release-local' \
 		'  make release        Create Developer ID signed and notarized app/zip'
@@ -68,6 +69,11 @@ lint:
 
 lint-fix:
 	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
+
+# Regenerate the app icon from the vector generator. Deterministic: it renders
+# every iconset size offscreen and runs iconutil, writing Resources/AppIcon.icns.
+icon:
+	swift $(CURDIR)/Resources/generate-appicon.swift $(CURDIR)/Resources/AppIcon.icns
 
 release-local:
 	scripts/release.sh --local

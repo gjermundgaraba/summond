@@ -5,11 +5,20 @@ global shortcut — it opens, focuses, or moves a target app's windows onto your
 current Space. Summond edits shortcuts, the LaunchAgent intercepts
 key events, and an optional menu bar item shows agent health.
 
+## Status
+
+Summond is at its first release (1.0) and under active development. Every push
+to `main` and every pull request runs `make lint`, `make core-test`, and
+`make app-test` on GitHub Actions (`.github/workflows/ci.yml`). The GUI and
+VM-only suites (`make test-tart`, `make smoke-tart`) are maintainer-run and not
+part of CI.
+
 ## Requirements
 
 - macOS 26.0+
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45.4+
-- [Tart](https://tart.run/) for `make test-tart`
+- Xcode 26+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45+
+- [Tart](https://tart.run/) for `make test-tart` and `make smoke-tart`
 - Accessibility permission for the `Summond` entry that represents the
   bundled `SummondAgent` helper
 - Input Monitoring permission for the `Summond` entry that represents the
@@ -54,10 +63,11 @@ Representative supported keys include letters, numbers, function keys
 
 **Switch to It** performs a normal app launch or activation.
 
-**New Window** prefers a window on the current Space. If the app is already
-running elsewhere, Summond asks the Dock for the app's **New Window** menu item,
-waits for a window on the current Space, and then activates the app. If Dock
-menu access, window creation, or activation fails, the shortcut is still
+**New Window** prefers a window on the current Space, detected via
+runtime-resolved private SkyLight queries. If the app is running but has no
+window on the current Space, Summond asks the Dock for the app's **New Window**
+menu item, waits for a window on the current Space, and then activates the app.
+If Dock menu access, window creation, or activation fails, the shortcut is still
 consumed and the failure is logged.
 
 **Move Here** brings existing windows to the current Space when possible. It uses
@@ -89,13 +99,13 @@ tccutil reset Accessibility net.garaba.summond.agent
 tccutil reset ListenEvent net.garaba.summond.agent
 ```
 
-Stream logs from the app, agent, and status item:
+Stream Summond logs:
 
 ```bash
 log stream --predicate 'subsystem == "net.garaba.summond"'
 ```
 
-Useful service checks:
+Useful local build checks:
 
 ```bash
 make project
@@ -123,45 +133,29 @@ Build the Debug app:
 make build
 ```
 
-Run the full test suite:
+Run the host unit test suite:
 
 ```bash
 make test
 ```
 
-Run the same test gate, plus the XCUITest UI suite, in a clean disposable Tart
-VM:
+Run unit and UI tests in a clean disposable Tart VM:
 
 ```bash
 make test-tart
 ```
 
-`make test-tart` ensures a reusable Tart base VM named
-`codex-macos-tahoe-xcodegen-base` exists, clones it to a disposable VM, mounts
-this checkout at `/Volumes/My Shared Files/summond`, copies it to a guest-local
-temp directory, then runs `make test ui-test` there. The XCUITest UI tests
-(`make ui-test`) drive a real GUI app, so they run only inside the Tart VM and
-are intentionally excluded from host `make test`. The disposable VM is stopped
-and deleted after the run. Use `BASE_VM=<name>` to choose a different prepared
-base.
-If the base is missing, `scripts/tart-ensure-base.sh` creates it from
-`ghcr.io/cirruslabs/macos-tahoe-xcode:latest` and installs XcodeGen.
+The XCUITest UI suite is intended to run via `make test-tart`, is excluded from
+host `make test`, and can be forced on a host with `ALLOW_HOST_UITESTS=1`.
+`make test-tart` clones a disposable VM from a
+reusable base named `summond-macos-tahoe-xcodegen-base` (created automatically by
+`scripts/tart-ensure-base.sh` if missing) and runs `make test ui-test` there. Use
+`BASE_VM=<name>` to choose a different prepared base, or
+`SUMMOND_TART_SOURCE_IMAGE=<image>` when creating the base VM. `make smoke-tart`
+separately runs only the unattended launchctl/mach-service smoke.
 
-The UI suite drives the real views, app model, and persistence (a Debug-only
-harness injects fakes for XPC/SMAppService/catalog/store). SwiftUI scene windows
-do not render under XCUITest in the Tart VM, so the harness hosts the real views
-in AppKit windows; the production *scene* layer is therefore not covered by
-these tests and remains manual-test-only — `WindowGroup`/`Window`/`Settings`
-presentation, the menu commands (⌘N/⌘↩/⌦), the `summond://` deep link,
-window placement/restoration, and `scenePhase` reactivation. `make ui-test`
-refuses to run on a host Mac unless `ALLOW_HOST_UITESTS=1` is set (it drives a
-real GUI); `make test-tart` sets it inside the VM.
-
-Routine `make test` covers the agent XPC client/listener contract with an
-anonymous-listener integration test and static LaunchAgent plist assertions.
-`make smoke-tart` adds an unattended Tart VM smoke for launchctl spawn and a real
-mach-service status round-trip. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
-full coverage boundary.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full coverage boundary, including
+which scene-layer behaviors remain manual-test-only.
 
 Run only Core package tests or only Xcode app tests:
 
@@ -196,3 +190,24 @@ make release
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the bundle layout, XPC boundary,
 storage format, and release signing flow.
+
+## Private API Limitation
+
+Summond resolves private SkyLight window-server functions at runtime. **New
+Window** uses them for current-Space membership queries; **Move Here** uses them
+for membership and for moving windows between Spaces. **Switch to It** uses only
+public APIs. macOS does not officially support these SkyLight entry points, and a
+future release can break them without warning. Summond degrades to a logged,
+non-fatal failure when they are unavailable. See
+[`Core/Sources/SummondCore/SpaceMover.swift`](Core/Sources/SummondCore/SpaceMover.swift)
+and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup
+and the checks CI runs, and [SECURITY.md](SECURITY.md) to report vulnerabilities.
+
+## License
+
+Summond is released under the [MIT License](LICENSE). Third-party notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -6,21 +6,15 @@ import ObjectiveC
 
 /// Moves windows of other applications to the active Mission Control space.
 ///
-/// macOS has no public API for this. Like yabai, three private SkyLight
-/// mechanisms are tried, picked once at startup based on availability and OS
-/// version:
+/// macOS has no public API for this. The SkyLight technique used here — a
+/// `SLSBridgedMoveWindowsToManagedSpaceOperation` executed via
+/// `SLSPerformAsynchronousBridgedWindowManagementOperation` — was informed by
+/// yabai's window-management code (see THIRD_PARTY_NOTICES.md). It works on
+/// macOS 26 without disabling SIP.
 ///
-/// 1. **Bridged operation** (macOS 15+/26): an `SLSBridgedMoveWindowsToManagedSpaceOperation`
-///    executed via `SLSPerformAsynchronousBridgedWindowManagementOperation`. That
-///    function has internal linkage, so it is located by scanning SkyLight's
-///    Mach-O symbol table rather than `dlsym`.
-/// 2. **Compat-ID workaround** (macOS 12.7+/13.6+/14.5+ without the bridged
-///    operation): tag the active space with a temporary workspace ID via
-///    `SLSSpaceSetCompatID`, re-point the windows at it with
-///    `SLSSetWindowListWorkspace`, then clear the tag.
-/// 3. **Direct move** (older macOS): `SLSMoveWindowsToManagedSpace`.
-///
-/// Everything is resolved at runtime so a missing symbol on a future macOS
+/// Everything is resolved at runtime: `SLSPerformAsynchronousBridgedWindowManagementOperation`
+/// has internal linkage, so it is located by scanning SkyLight's Mach-O symbol
+/// table rather than `dlsym`. A missing symbol or class on a future macOS
 /// degrades to a logged app-open failure instead of a launch-time link error.
 struct SpaceMover: Sendable {
   private typealias MainConnectionID = @convention(c) () -> Int32
@@ -35,33 +29,12 @@ struct SpaceMover: Sendable {
       UnsafeMutableRawPointer, Selector, CFArray, UInt64
     ) -> UnsafeMutableRawPointer?
   private typealias MsgSendRelease = @convention(c) (UnsafeMutableRawPointer, Selector) -> Void
-  private typealias MoveWindowsToManagedSpace = @convention(c) (Int32, CFArray, UInt64) -> Void
-  private typealias SpaceSetCompatID = @convention(c) (Int32, UInt64, Int32) -> Int32
-  private typealias SetWindowListWorkspace =
-    @convention(c) (
-      Int32, UnsafePointer<UInt32>, Int32, Int32
-    ) ->
-    Int32
 
-  private struct BridgedOperationFunctions: Sendable {
+  private struct BridgedOperation: Sendable {
     let perform: PerformBridgedOperation
     let alloc: MsgSendAlloc
     let initWithWindowsSpaceID: MsgSendInitWithWindowsSpaceID
     let release: MsgSendRelease
-  }
-
-  private enum Mechanism: Sendable {
-    case bridgedOperation(BridgedOperationFunctions)
-    case compatID(set: SpaceSetCompatID, setWindowListWorkspace: SetWindowListWorkspace)
-    case moveToManagedSpace(MoveWindowsToManagedSpace)
-
-    var description: String {
-      switch self {
-      case .bridgedOperation: "bridged operation"
-      case .compatID: "compat-ID workaround"
-      case .moveToManagedSpace: "managed-space move"
-      }
-    }
   }
 
   private static let skylightPath =
@@ -70,9 +43,6 @@ struct SpaceMover: Sendable {
   private static let performBridgedOperationSymbol =
     "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperation"
     + "P47SLSAsynchronousBridgedWindowManagementOperation"
-
-  // Arbitrary non-zero tag; only needs to be unique while a move is in flight.
-  private static let compatID: Int32 = 0x6b62_6464
 
   // `SLSCopySpacesForWindows` selector: include every space the given windows
   // occupy (current and others), matching yabai's usage.
@@ -84,7 +54,7 @@ struct SpaceMover: Sendable {
   private let copyActiveDisplay: CopyActiveDisplay
   private let managedDisplayCurrentSpace: ManagedDisplayCurrentSpace
   private let copySpacesForWindows: CopySpacesForWindows
-  private let mechanism: Mechanism
+  private let bridgedOperation: BridgedOperation
 
   init?(logger: Logger, verboseLogging: Bool = false) {
     guard let handle = dlopen(Self.skylightPath, RTLD_LAZY) else {
@@ -92,17 +62,12 @@ struct SpaceMover: Sendable {
       return nil
     }
 
-    let resolve: (String) -> UnsafeMutableRawPointer? = { name in
+    func symbol<T>(_ name: String, as type: T.Type) -> T? {
       guard let address = dlsym(handle, name) else {
         logger.warning("[spaces] missing SkyLight symbol '\(name)'")
         return nil
       }
-
-      return address
-    }
-
-    func symbol<T>(_ name: String, as type: T.Type) -> T? {
-      resolve(name).map { unsafeBitCast($0, to: T.self) }
+      return unsafeBitCast(address, to: T.self)
     }
 
     guard
@@ -113,7 +78,7 @@ struct SpaceMover: Sendable {
         "SLSManagedDisplayGetCurrentSpace", as: ManagedDisplayCurrentSpace.self),
       let copySpacesForWindows = symbol(
         "SLSCopySpacesForWindows", as: CopySpacesForWindows.self),
-      let mechanism = Self.resolveMechanism(logger: logger, resolve: resolve)
+      let bridgedOperation = Self.resolveBridgedOperation(logger: logger)
     else {
       return nil
     }
@@ -124,10 +89,7 @@ struct SpaceMover: Sendable {
     self.copyActiveDisplay = copyActiveDisplay
     self.managedDisplayCurrentSpace = managedDisplayCurrentSpace
     self.copySpacesForWindows = copySpacesForWindows
-    self.mechanism = mechanism
-    if verboseLogging {
-      logger.debug("[spaces] using \(mechanism.description) to move windows")
-    }
+    self.bridgedOperation = bridgedOperation
   }
 
   func moveWindowsToActiveSpace(_ windowIDs: [CGWindowID]) -> Bool {
@@ -141,24 +103,7 @@ struct SpaceMover: Sendable {
       return false
     }
 
-    switch mechanism {
-    case .bridgedOperation(let functions):
-      return performBridgedMove(windowIDs, to: space, using: functions)
-    case .compatID(let setCompatID, let setWindowListWorkspace):
-      return performCompatIDMove(
-        windowIDs,
-        to: space,
-        connection: connection,
-        setCompatID: setCompatID,
-        setWindowListWorkspace: setWindowListWorkspace
-      )
-    case .moveToManagedSpace(let move):
-      move(connection, Self.windowNumberArray(windowIDs), space)
-      if verboseLogging {
-        logger.debug("[spaces] requested managed-space move of \(windowIDs) to space \(space)")
-      }
-      return true
-    }
+    return performBridgedMove(windowIDs, to: space)
   }
 
   /// The current space of the display that owns the menu bar. This is the
@@ -197,23 +142,19 @@ struct SpaceMover: Sendable {
     return spaces.contains { $0.uint64Value == active }
   }
 
-  private func performBridgedMove(
-    _ windowIDs: [CGWindowID],
-    to space: UInt64,
-    using functions: BridgedOperationFunctions
-  ) -> Bool {
+  private func performBridgedMove(_ windowIDs: [CGWindowID], to space: UInt64) -> Bool {
     guard let operationClass = NSClassFromString(Self.bridgedOperationClassName) else {
       logger.warning("[spaces] missing class '\(Self.bridgedOperationClassName)'")
       return false
     }
 
-    guard let instance = functions.alloc(operationClass, sel_registerName("alloc")) else {
+    guard let instance = bridgedOperation.alloc(operationClass, sel_registerName("alloc")) else {
       logger.warning("[spaces] failed to allocate bridged move operation")
       return false
     }
 
     guard
-      let operation = functions.initWithWindowsSpaceID(
+      let operation = bridgedOperation.initWithWindowsSpaceID(
         instance,
         sel_registerName("initWithWindows:spaceID:"),
         Self.windowNumberArray(windowIDs),
@@ -224,115 +165,30 @@ struct SpaceMover: Sendable {
       return false
     }
 
-    _ = functions.perform(operation)
-    functions.release(operation, sel_registerName("release"))
+    _ = bridgedOperation.perform(operation)
+    bridgedOperation.release(operation, sel_registerName("release"))
     if verboseLogging {
       logger.debug("[spaces] requested bridged move of \(windowIDs) to space \(space)")
     }
     return true
   }
 
-  private func performCompatIDMove(
-    _ windowIDs: [CGWindowID],
-    to space: UInt64,
-    connection: Int32,
-    setCompatID: SpaceSetCompatID,
-    setWindowListWorkspace: SetWindowListWorkspace
-  ) -> Bool {
-    guard setCompatID(connection, space, Self.compatID) == 0 else {
-      logger.warning("[spaces] failed to tag space \(space)")
-      return false
-    }
-
-    defer {
-      if setCompatID(connection, space, 0) != 0 {
-        logger.warning("[spaces] failed to clear tag on space \(space)")
-      }
-    }
-
-    let moved = windowIDs.withUnsafeBufferPointer { buffer in
-      setWindowListWorkspace(
-        connection, buffer.baseAddress!, Int32(buffer.count), Self.compatID)
-    }
-    guard moved == 0 else {
-      logger.warning("[spaces] failed to move windows \(windowIDs) to space \(space)")
-      return false
-    }
-
-    if verboseLogging {
-      logger.debug("[spaces] moved windows \(windowIDs) to space \(space)")
-    }
-    return true
-  }
-
-  private static func resolveMechanism(
-    logger: Logger,
-    resolve: (String) -> UnsafeMutableRawPointer?
-  ) -> Mechanism? {
-    if let performAddress = localSymbol(
-      image: skylightPath, name: performBridgedOperationSymbol),
+  private static func resolveBridgedOperation(logger: Logger) -> BridgedOperation? {
+    guard
+      let performAddress = localSymbol(image: skylightPath, name: performBridgedOperationSymbol),
       NSClassFromString(bridgedOperationClassName) != nil,
       let msgSend = dlsym(dlopen(nil, RTLD_LAZY), "objc_msgSend")
-    {
-      return .bridgedOperation(
-        BridgedOperationFunctions(
-          perform: unsafeBitCast(performAddress, to: PerformBridgedOperation.self),
-          alloc: unsafeBitCast(msgSend, to: MsgSendAlloc.self),
-          initWithWindowsSpaceID: unsafeBitCast(
-            msgSend, to: MsgSendInitWithWindowsSpaceID.self),
-          release: unsafeBitCast(msgSend, to: MsgSendRelease.self)
-        )
-      )
-    }
-
-    if requiresBridgedOperation() {
+    else {
       logger.warning("[spaces] bridged move operation is unavailable on this macOS version")
       return nil
     }
 
-    if needsCompatIDWorkaround() {
-      guard
-        let setCompatID = resolve("SLSSpaceSetCompatID"),
-        let setWindowListWorkspace = resolve("SLSSetWindowListWorkspace")
-      else {
-        return nil
-      }
-
-      return .compatID(
-        set: unsafeBitCast(setCompatID, to: SpaceSetCompatID.self),
-        setWindowListWorkspace: unsafeBitCast(
-          setWindowListWorkspace, to: SetWindowListWorkspace.self)
-      )
-    }
-
-    guard let move = resolve("SLSMoveWindowsToManagedSpace") else {
-      return nil
-    }
-
-    return .moveToManagedSpace(unsafeBitCast(move, to: MoveWindowsToManagedSpace.self))
-  }
-
-  // SLSMoveWindowsToManagedSpace and SLSSpaceSetCompatID stopped working for
-  // external connections in macOS 12.7/13.6/14.5 and 15+ respectively; this
-  // mirrors yabai's version gates.
-  private static func needsCompatIDWorkaround() -> Bool {
-    let version = ProcessInfo.processInfo.operatingSystemVersion
-    switch version.majorVersion {
-    case ..<12:
-      return false
-    case 12:
-      return version.minorVersion >= 7
-    case 13:
-      return version.minorVersion >= 6
-    case 14:
-      return version.minorVersion >= 5
-    default:
-      return true
-    }
-  }
-
-  private static func requiresBridgedOperation() -> Bool {
-    ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15
+    return BridgedOperation(
+      perform: unsafeBitCast(performAddress, to: PerformBridgedOperation.self),
+      alloc: unsafeBitCast(msgSend, to: MsgSendAlloc.self),
+      initWithWindowsSpaceID: unsafeBitCast(msgSend, to: MsgSendInitWithWindowsSpaceID.self),
+      release: unsafeBitCast(msgSend, to: MsgSendRelease.self)
+    )
   }
 
   private static func windowNumberArray(_ windowIDs: [CGWindowID]) -> CFArray {

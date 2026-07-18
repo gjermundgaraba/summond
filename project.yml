@@ -5,6 +5,8 @@ options:
     macOS: "26.0"
 settings:
   base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     SWIFT_VERSION: "6.0"
     ENABLE_HARDENED_RUNTIME: YES
@@ -25,7 +27,7 @@ targets:
         excludes:
           - Resources/**
           - Info.plist
-      - path: App/Resources/ThirdPartyNotices.md
+      - path: THIRD_PARTY_NOTICES.md
         buildPhase: resources
       - path: Resources/AppIcon.icns
     dependencies:

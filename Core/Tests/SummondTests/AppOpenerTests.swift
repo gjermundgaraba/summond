@@ -20,7 +20,7 @@ struct AppOpenerTests {
 
     #expect(runtime.openCount() == 1)
 
-    runtime.completeOpen(with: .launched(bundleIdentifier: "com.apple.safari"))
+    runtime.completeOpen(with: .launched)
     await opener.waitForIdle()
 
     runtime.suspendNextOpen()
@@ -38,7 +38,7 @@ struct AppOpenerTests {
     await opener.open(binding)
     await runtime.waitForPendingOpen()
 
-    runtime.completeOpen(with: .failed(bundleIdentifier: "com.apple.safari", reason: "boom"))
+    runtime.completeOpen(with: .failed(reason: "boom"))
     await opener.waitForIdle()
 
     runtime.suspendNextOpen()
@@ -56,7 +56,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .launch)
 
-    #expect(result == .launched(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .launched)
     #expect(system.launchRequests() == ["com.apple.safari"])
     #expect(system.newWindowRequests().isEmpty)
     #expect(system.activatedBundleIDs().isEmpty)
@@ -65,42 +65,29 @@ struct MacOSAppRuntimeTests {
   @Test("New-window mode activates an existing window without opening a new one")
   func newWindowActivatesExistingWindow() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: true)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(result == .activatedExistingWindow(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .activatedExistingWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
-    #expect(system.activationActivatesAllWindows() == [true])
   }
 
   @Test("New-window mode fails when activating an existing window fails")
   func newWindowFailsWhenExistingWindowActivationFails() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: true)
     system.setActivationSuccess(false)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "failed to activate existing window"
-        )
-    )
+    #expect(result == .failed(reason: "failed to activate existing window"))
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
@@ -109,17 +96,14 @@ struct MacOSAppRuntimeTests {
   @Test("New-window mode requests a new window for a running app off the current space")
   func newWindowRequestsNewWindowWhenNeeded() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWaitForWindow(processID: 42, result: true)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(result == .openedNewWindow(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .openedNewWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests() == ["com.apple.safari"])
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
@@ -128,10 +112,7 @@ struct MacOSAppRuntimeTests {
   @Test("New-window mode fails when activation after opening a new window fails")
   func newWindowFailsWhenNewWindowActivationFails() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWaitForWindow(processID: 42, result: true)
     system.setActivationSuccess(false)
@@ -139,13 +120,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "failed to activate app after opening new window"
-        )
-    )
+    #expect(result == .failed(reason: "failed to activate app after opening new window"))
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests() == ["com.apple.safari"])
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
@@ -158,7 +133,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(result == .launched(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .launched)
     #expect(system.launchRequests() == ["com.apple.safari"])
     #expect(system.newWindowRequests().isEmpty)
   }
@@ -166,23 +141,14 @@ struct MacOSAppRuntimeTests {
   @Test("New-window mode fails when a new window never appears")
   func newWindowFailsWhenNewWindowDoesNotAppear() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWaitForWindow(processID: 42, result: false)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "new window did not appear on current space"
-        )
-    )
+    #expect(result == .failed(reason: "new window did not appear on current space"))
     #expect(system.newWindowRequests() == ["com.apple.safari"])
     #expect(system.activatedBundleIDs().isEmpty)
   }
@@ -192,23 +158,14 @@ struct MacOSAppRuntimeTests {
     struct WaitCancelled: Error {}
 
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWaitForWindow(processID: 42, error: WaitCancelled())
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .newWindow)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "cancelled while waiting for new window"
-        )
-    )
+    #expect(result == .failed(reason: "cancelled while waiting for new window"))
     #expect(system.newWindowRequests() == ["com.apple.safari"])
     #expect(system.activatedBundleIDs().isEmpty)
   }
@@ -220,7 +177,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(result == .launched(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .launched)
     #expect(system.launchRequests() == ["com.apple.safari"])
     #expect(system.moveRequests().isEmpty)
   }
@@ -228,17 +185,14 @@ struct MacOSAppRuntimeTests {
   @Test("Move mode activates an existing window on the current space without moving anything")
   func moveActivatesExistingWindowOnCurrentSpace() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: true)
     system.setWindowIDs([7], for: 42)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(result == .activatedExistingWindow(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .activatedExistingWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.moveRequests().isEmpty)
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
@@ -247,17 +201,14 @@ struct MacOSAppRuntimeTests {
   @Test("Move mode moves windows from another space and activates the app")
   func moveMovesWindowsFromAnotherSpace() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWindowIDs([7, 8], for: 42)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(result == .movedToCurrentSpace(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .movedToCurrentSpace)
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
     #expect(system.moveRequests() == [[7, 8]])
@@ -267,16 +218,13 @@ struct MacOSAppRuntimeTests {
   @Test("Move mode launches when the app is running without windows")
   func moveLaunchesWhenAppHasNoWindows() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     let runtime = MacOSAppRuntime(system: system)
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(result == .launched(bundleIdentifier: "com.apple.safari"))
+    #expect(result == .launched)
     #expect(system.launchRequests() == ["com.apple.safari"])
     #expect(system.moveRequests().isEmpty)
   }
@@ -284,10 +232,7 @@ struct MacOSAppRuntimeTests {
   @Test("Move mode fails when moving windows fails")
   func moveFailsWhenMovingWindowsFails() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWindowIDs([7], for: 42)
     system.setMoveSuccess(false)
@@ -295,13 +240,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "failed to move windows to current space"
-        )
-    )
+    #expect(result == .failed(reason: "failed to move windows to current space"))
     #expect(system.moveRequests() == [[7]])
     #expect(system.activatedBundleIDs().isEmpty)
   }
@@ -309,10 +248,7 @@ struct MacOSAppRuntimeTests {
   @Test("Move mode fails when activation after moving windows fails")
   func moveFailsWhenActivationAfterMoveFails() async {
     let system = TestMacOSAppRuntimeSystem()
-    system.setRunningApp(
-      RunningApplicationState(
-        bundleIdentifier: "com.apple.safari", processID: 42, isTerminated: false)
-    )
+    system.setRunningApp(processID: 42)
     system.setAppOnCurrentSpace(processID: 42, present: false)
     system.setWindowIDs([7], for: 42)
     system.setActivationSuccess(false)
@@ -320,13 +256,7 @@ struct MacOSAppRuntimeTests {
 
     let result = await runtime.open(identity: makeIdentity(), mode: .move)
 
-    #expect(
-      result
-        == .failed(
-          bundleIdentifier: "com.apple.safari",
-          reason: "failed to activate app after moving windows"
-        )
-    )
+    #expect(result == .failed(reason: "failed to activate app after moving windows"))
     #expect(system.moveRequests() == [[7]])
     #expect(system.activatedBundleIDs() == ["com.apple.safari"])
   }
@@ -344,24 +274,11 @@ struct InstalledAppResolverTests {
     #expect(identity?.bundleURL == bundleURL.standardizedFileURL)
     #expect(identity?.bundleIdentifier == "com.apple.Safari")
   }
-
-  @Test("Resolves identities from relative application paths")
-  func resolvesIdentityFromRelativeApplicationPath() throws {
-    try withTemporaryCurrentDirectory { tempDirectory in
-      let bundleURL = try makeTestApplicationBundle(in: tempDirectory)
-
-      let identity = InstalledAppResolver.identity(forApplicationPath: "Safari.app")
-
-      #expect(identity?.bundleURL == bundleURL.standardizedFileURL)
-      #expect(identity?.bundleIdentifier == "com.apple.Safari")
-    }
-  }
 }
 
-private func makeTestApplicationBundle(in directory: URL? = nil) throws -> URL {
+private func makeTestApplicationBundle() throws -> URL {
   let baseDirectory =
-    directory
-    ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   let bundleURL = baseDirectory.appendingPathComponent("Safari.app")
   let contentsURL = bundleURL.appendingPathComponent("Contents")
   let infoPlistURL = contentsURL.appendingPathComponent("Info.plist")

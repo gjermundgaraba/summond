@@ -120,15 +120,12 @@ enum ShortcutRecordResult: Equatable {
   }
 }
 
-enum SaveShortcutResult: Equatable {
+/// The outcome of any configuration mutation. `invalid` only arises from
+/// draft-editing mutations that validate a user draft first; persistence
+/// mutations produce the other cases.
+enum ConfigurationMutationResult: Equatable {
   case saved
   case savedButReloadFailed(String)
   case failed(String)
   case invalid([ShortcutDraftIssue])
-}
-
-enum ConfigurationUpdateResult: Equatable {
-  case saved
-  case savedButReloadFailed(String)
-  case failed(String)
 }
