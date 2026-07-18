@@ -5,6 +5,10 @@ global shortcut — it opens, focuses, or moves a target app's windows onto your
 current Space. Summond edits shortcuts, the LaunchAgent intercepts
 key events, and an optional menu bar item shows agent health.
 
+![Summond configured with example shortcuts for Safari and Terminal](docs/images/summond-overview.png)
+
+![Adding a new shortcut and choosing its window behavior](docs/images/summond-add-shortcut.gif)
+
 ## Status
 
 Summond is at its first release (1.0) and under active development. Every push
