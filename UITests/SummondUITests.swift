@@ -251,6 +251,32 @@ final class SummondUITests: XCTestCase {
       "Accessibility remediation was not shown")
   }
 
+  /// Exercises the real PermissionFlow surface and System Settings application
+  /// while keeping agent status deterministic through the UI-test harness.
+  func testAccessibilityPermissionFlowOpensSettingsForEmbeddedAgent() {
+    let app = launch(
+      accessibility: false,
+      setupPresented: false,
+      permissionFlow: true
+    )
+
+    let action = app.buttons["setup.openAccessibilitySettingsButton"]
+    XCTAssertTrue(action.waitForExistence(timeout: launchTimeout))
+    action.click()
+
+    let settings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+    XCTAssertTrue(
+      settings.wait(for: .runningForeground, timeout: launchTimeout),
+      "System Settings did not become foreground")
+    XCTAssertTrue(
+      app.staticTexts["SummondAgent"].waitForExistence(timeout: uiTimeout),
+      "PermissionFlow did not offer the embedded agent app")
+
+    XCTAssertTrue(
+      settings.staticTexts["Accessibility"].waitForExistence(timeout: uiTimeout),
+      "PermissionFlow did not open the Accessibility settings pane")
+  }
+
   /// The completion screen should not offer to add a first shortcut once the
   /// user already has shortcuts.
   func testReadySetupAssistantWithExistingShortcutHidesFirstShortcutAction() {
@@ -324,7 +350,8 @@ final class SummondUITests: XCTestCase {
     setupPresented: Bool = true,
     reloadFails: Bool = false,
     draftShortcut: String? = nil,
-    suite: String? = nil
+    suite: String? = nil,
+    permissionFlow: Bool = false
   ) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = [
@@ -345,6 +372,9 @@ final class SummondUITests: XCTestCase {
     if let suite {
       environment["SUMMOND_UITEST_SUITE"] = suite
     }
+    if permissionFlow {
+      environment["SUMMOND_UITEST_PERMISSION_FLOW"] = "1"
+    }
     app.launchEnvironment = environment
     return app
   }
@@ -355,14 +385,16 @@ final class SummondUITests: XCTestCase {
     accessibility: Bool = true,
     setupPresented: Bool = true,
     reloadFails: Bool = false,
-    draftShortcut: String? = nil
+    draftShortcut: String? = nil,
+    permissionFlow: Bool = false
   ) -> XCUIApplication {
     let app = configuredApp(
       seed: seed,
       accessibility: accessibility,
       setupPresented: setupPresented,
       reloadFails: reloadFails,
-      draftShortcut: draftShortcut
+      draftShortcut: draftShortcut,
+      permissionFlow: permissionFlow
     )
     app.launch()
     return app
@@ -489,4 +521,5 @@ final class SummondUITests: XCTestCase {
     let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }
+
 }

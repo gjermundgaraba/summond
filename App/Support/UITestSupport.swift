@@ -83,6 +83,10 @@
       ProcessInfo.processInfo.arguments.contains("-summondUITests")
     }
 
+    static var allowsSystemPermissionFlow: Bool {
+      env("SUMMOND_UITEST_PERMISSION_FLOW") == "1"
+    }
+
     @MainActor static var sharedModel: SummondModel?
 
     static var prefilledDraftShortcut: ShortcutDraft? {
