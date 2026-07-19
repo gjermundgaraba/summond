@@ -25,6 +25,8 @@ final class SummondModel {
   private let statusItemService: any LoginItemServiceManaging
   private let appCatalog: any AppDisplayResolving
   private let savedDataRemover: any SavedDataRemoving
+  private let repairSleep: @Sendable (Duration) async -> Void
+  private let isStatusItemRunning: @Sendable () -> Bool
 
   private(set) var configuration: SummondConfiguration
   private(set) var loadState: LoadState
@@ -61,7 +63,15 @@ final class SummondModel {
       loginItemIdentifier: SummondBundleIdentifiers.statusItem
     ),
     appCatalog: (any AppDisplayResolving)? = nil,
-    savedDataRemover: any SavedDataRemoving = UserDefaultsSavedDataRemover()
+    savedDataRemover: any SavedDataRemoving = UserDefaultsSavedDataRemover(),
+    repairSleep: @escaping @Sendable (Duration) async -> Void = {
+      try? await Task.sleep(for: $0)
+    },
+    isStatusItemRunning: @escaping @Sendable () -> Bool = {
+      !NSRunningApplication.runningApplications(
+        withBundleIdentifier: SummondBundleIdentifiers.statusItem
+      ).isEmpty
+    }
   ) {
     self.storage = storage
     self.agentClient = agentClient
@@ -69,6 +79,8 @@ final class SummondModel {
     self.statusItemService = statusItemService
     self.appCatalog = appCatalog ?? InstalledAppCatalog()
     self.savedDataRemover = savedDataRemover
+    self.repairSleep = repairSleep
+    self.isStatusItemRunning = isStatusItemRunning
     self.serviceStatus = agentService.status
     self.statusItemStatus = statusItemService.status
 
@@ -303,6 +315,65 @@ final class SummondModel {
     }
   }
 
+  func start() async {
+    await repairStaleRegistrations()
+    await refresh()
+  }
+
+  /// SMAppService pins the registered binary's code requirement, so after an
+  /// app update launchd refuses to spawn the stale registration (EX_CONFIG)
+  /// until the owning app re-registers. Calling `register()` alone does not
+  /// refresh the pinned requirement; only unregister-then-register does. Run
+  /// that repair only for items that are enabled yet not actually running, so
+  /// healthy services are never restarted and disabled items stay disabled.
+  private func repairStaleRegistrations() async {
+    if statusItemService.status == .enabled, !isStatusItemRunning() {
+      isStatusItemBusy = true
+      defer { isStatusItemBusy = false }
+      do {
+        try await repairRegistration(of: statusItemService)
+        statusItemError = nil
+      } catch {
+        statusItemError = error.localizedDescription
+      }
+      statusItemStatus = statusItemService.status
+    }
+
+    guard agentService.status == .enabled else {
+      return
+    }
+    isServiceBusy = true
+    defer { isServiceBusy = false }
+    if (try? await agentClient.status()) != nil {
+      return
+    }
+    do {
+      try await repairRegistration(of: agentService)
+      serviceError = nil
+    } catch {
+      serviceError = error.localizedDescription
+    }
+    serviceStatus = agentService.status
+  }
+
+  /// Failed registers retry alone because a second unregister would discard
+  /// the registration this repair restores.
+  private func repairRegistration(of service: any LoginItemServiceManaging) async throws {
+    try await service.unregister()
+    let delays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
+    for (attempt, delay) in delays.enumerated() {
+      await repairSleep(delay)
+      do {
+        try await service.register()
+        return
+      } catch {
+        if attempt == delays.count - 1 {
+          throw error
+        }
+      }
+    }
+  }
+
   func setStatusItemShown(_ isShown: Bool) async {
     // Settings disables the toggle during this operation. Dropping a second
     // request also protects SMAppService from overlapping register calls.
@@ -316,7 +387,6 @@ final class SummondModel {
       do {
         try await statusItemService.register()
         statusItemError = nil
-        launchStatusItem()
       } catch {
         statusItemError = error.localizedDescription
       }
@@ -496,29 +566,6 @@ final class SummondModel {
       serviceError = error.localizedDescription
     }
     await refresh()
-  }
-
-  private func launchStatusItem() {
-    #if DEBUG
-      if UITestHarness.isActive { return }
-    #endif
-    let statusItemURL = Bundle.main.bundleURL
-      .appendingPathComponent("Contents/Library/LoginItems/SummondStatus.app")
-    guard FileManager.default.fileExists(atPath: statusItemURL.path) else {
-      statusItemError = "SummondStatus.app was not found in this app bundle."
-      return
-    }
-
-    let launchConfiguration = NSWorkspace.OpenConfiguration()
-    NSWorkspace.shared.openApplication(at: statusItemURL, configuration: launchConfiguration) {
-      [weak self] _, error in
-      guard let error else {
-        return
-      }
-      Task { @MainActor in
-        self?.statusItemError = error.localizedDescription
-      }
-    }
   }
 
   private func terminateStatusItem() {

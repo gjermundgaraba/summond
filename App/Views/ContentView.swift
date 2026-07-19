@@ -78,7 +78,6 @@ struct ContentView: View {
       Text("This replaces the unreadable configuration with an empty one.")
     }
     .task {
-      await model.refresh()
       if !hasPresentedInitialSetup {
         presentedSheet = .setup
       }
