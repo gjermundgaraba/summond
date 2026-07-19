@@ -259,20 +259,108 @@ struct SummondModelTests {
 
   @Test("Restart unregisters before registering")
   func restartService() async {
-    let service = CountingLoginItemService(status: .enabled)
+    let operations = OperationRecorder()
+    let service = RecordingLoginItemService(
+      name: "agent", status: .enabled, operations: operations)
     let model = makeModel(agentService: service)
 
     await model.restartService()
 
-    #expect(service.operations == ["unregister", "register"])
+    #expect(operations.values == ["agent.unregister", "agent.register"])
+  }
+
+  @Test("Repair unregisters, waits, then registers each stale enabled service")
+  func repairStaleRegistrationsOrder() async {
+    let operations = OperationRecorder()
+    let statusItem = RecordingLoginItemService(
+      name: "status", status: .enabled, operations: operations)
+    let agent = RecordingLoginItemService(
+      name: "agent", status: .enabled, operations: operations)
+    let model = makeModel(
+      agentClient: MockAgentClient(statusError: MockError.statusFailed),
+      agentService: agent,
+      statusItemService: statusItem,
+      repairSleep: { _ in operations.record("sleep") }
+    )
+
+    await model.start()
+
+    #expect(
+      operations.values == [
+        "status.unregister", "sleep", "status.register",
+        "agent.unregister", "sleep", "agent.register",
+      ])
+    #expect(model.statusItemError == nil)
+    #expect(model.serviceError == nil)
+  }
+
+  @Test("Repair retries a failed register without unregistering again")
+  func repairRetriesRegisterWithoutSecondUnregister() async {
+    let operations = OperationRecorder()
+    let agent = RecordingLoginItemService(
+      name: "agent",
+      status: .enabled,
+      operations: operations,
+      registerErrors: [MockError.registerFailed, MockError.registerFailed]
+    )
+    let model = makeModel(
+      agentClient: MockAgentClient(statusError: MockError.statusFailed),
+      agentService: agent,
+      repairSleep: { _ in operations.record("sleep") }
+    )
+
+    await model.start()
+
+    #expect(
+      operations.values == [
+        "agent.unregister", "sleep", "agent.register",
+        "sleep", "agent.register",
+        "sleep", "agent.register",
+      ])
+    #expect(model.serviceError == nil)
+  }
+
+  @Test("Repair leaves disabled services and a responsive agent untouched")
+  func repairSkipsDisabledAndHealthyServices() async {
+    let operations = OperationRecorder()
+    let disabledModel = makeModel(
+      agentClient: MockAgentClient(statusError: MockError.statusFailed),
+      agentService: RecordingLoginItemService(
+        name: "agent", status: .requiresApproval, operations: operations),
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .notRegistered, operations: operations)
+    )
+    await disabledModel.start()
+    #expect(operations.values.isEmpty)
+
+    let healthyModel = makeModel(
+      agentService: RecordingLoginItemService(
+        name: "agent", status: .enabled, operations: operations)
+    )
+    await healthyModel.start()
+    #expect(operations.values.isEmpty)
+  }
+
+  @Test("Repair leaves a running status item untouched")
+  func repairSkipsRunningStatusItem() async {
+    let operations = OperationRecorder()
+    let model = makeModel(
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      isStatusItemRunning: { true }
+    )
+
+    await model.start()
+
+    #expect(operations.values.isEmpty)
   }
 
   @Test("Uninstall preparation unregisters the agent before the menu bar item")
   func prepareForUninstallInOrder() async {
     let operations = OperationRecorder()
-    let agent = UninstallLoginItemService(
+    let agent = RecordingLoginItemService(
       name: "agent", status: .enabled, operations: operations)
-    let statusItem = UninstallLoginItemService(
+    let statusItem = RecordingLoginItemService(
       name: "status", status: .requiresApproval, operations: operations)
     let savedData = MockSavedDataRemover()
     let model = makeModel(
@@ -294,9 +382,9 @@ struct SummondModelTests {
     let operations = OperationRecorder()
     let savedData = MockSavedDataRemover()
     let model = makeModel(
-      agentService: UninstallLoginItemService(
+      agentService: RecordingLoginItemService(
         name: "agent", status: .notRegistered, operations: operations),
-      statusItemService: UninstallLoginItemService(
+      statusItemService: RecordingLoginItemService(
         name: "status", status: .notFound, operations: operations),
       savedDataRemover: savedData
     )
@@ -345,13 +433,13 @@ struct SummondModelTests {
     let operations = OperationRecorder()
     let savedData = MockSavedDataRemover()
     let model = makeModel(
-      agentService: UninstallLoginItemService(
+      agentService: RecordingLoginItemService(
         name: "agent",
         status: .enabled,
         operations: operations,
         unregisterErrors: [MockError.unregisterFailed]
       ),
-      statusItemService: UninstallLoginItemService(
+      statusItemService: RecordingLoginItemService(
         name: "status", status: .enabled, operations: operations),
       savedDataRemover: savedData
     )
@@ -367,14 +455,14 @@ struct SummondModelTests {
     let operations = OperationRecorder()
     let savedData = MockSavedDataRemover()
     let model = makeModel(
-      agentService: UninstallLoginItemService(
+      agentService: RecordingLoginItemService(
         name: "agent",
         status: .enabled,
         operations: operations,
         unregisterErrors: [MockError.unregisterFailed],
         unregistersBeforeThrowing: true
       ),
-      statusItemService: UninstallLoginItemService(
+      statusItemService: RecordingLoginItemService(
         name: "status", status: .enabled, operations: operations),
       savedDataRemover: savedData
     )
@@ -393,9 +481,9 @@ struct SummondModelTests {
   func prepareForUninstallRetriesStatusItem() async {
     let operations = OperationRecorder()
     let savedData = MockSavedDataRemover()
-    let agent = UninstallLoginItemService(
+    let agent = RecordingLoginItemService(
       name: "agent", status: .enabled, operations: operations)
-    let statusItem = UninstallLoginItemService(
+    let statusItem = RecordingLoginItemService(
       name: "status",
       status: .enabled,
       operations: operations,
@@ -421,7 +509,9 @@ struct SummondModelTests {
   @Test("Uninstall preparation blocks overlapping service operations")
   func prepareForUninstallBlocksOtherOperations() async throws {
     let agent = SuspendingUnregisterLoginItemService()
-    let statusItem = CountingLoginItemService(status: .notRegistered)
+    let statusOperations = OperationRecorder()
+    let statusItem = RecordingLoginItemService(
+      name: "status", status: .notRegistered, operations: statusOperations)
     let model = makeModel(agentService: agent, statusItemService: statusItem)
 
     let preparation = Task { await model.prepareForUninstall(deleteSavedData: false) }
@@ -430,7 +520,7 @@ struct SummondModelTests {
     await model.enableService()
     await model.setStatusItemShown(true)
     #expect(agent.registerCalls == 0)
-    #expect(statusItem.operations.isEmpty)
+    #expect(statusOperations.values.isEmpty)
 
     agent.resumeUnregister()
     #expect(await preparation.value)
@@ -442,7 +532,9 @@ struct SummondModelTests {
     agentClient: any AgentClientProtocol = MockAgentClient(),
     agentService: any LoginItemServiceManaging = StubLoginItemService(status: .enabled),
     statusItemService: any LoginItemServiceManaging = StubLoginItemService(status: .notRegistered),
-    savedDataRemover: any SavedDataRemoving = MockSavedDataRemover()
+    savedDataRemover: any SavedDataRemoving = MockSavedDataRemover(),
+    repairSleep: @escaping @Sendable (Duration) async -> Void = { _ in },
+    isStatusItemRunning: @escaping @Sendable () -> Bool = { false }
   ) -> SummondModel {
     SummondModel(
       storage: .available(store),
@@ -450,7 +542,9 @@ struct SummondModelTests {
       agentService: agentService,
       statusItemService: statusItemService,
       appCatalog: MockAppCatalog(),
-      savedDataRemover: savedDataRemover
+      savedDataRemover: savedDataRemover,
+      repairSleep: repairSleep,
+      isStatusItemRunning: isStatusItemRunning
     )
   }
 
@@ -632,28 +726,6 @@ private final class SuspendingLoginItemService: LoginItemServiceManaging, @unche
   }
 }
 
-private final class CountingLoginItemService: LoginItemServiceManaging, @unchecked Sendable {
-  private let lock = NSLock()
-  private var recordedOperations: [String] = []
-  let status: ServiceRegistrationStatus
-
-  init(status: ServiceRegistrationStatus) {
-    self.status = status
-  }
-
-  func register() async throws {
-    lock.withLock { recordedOperations.append("register") }
-  }
-
-  func unregister() async throws {
-    lock.withLock { recordedOperations.append("unregister") }
-  }
-
-  func openSystemSettingsLoginItems() {}
-
-  var operations: [String] { lock.withLock { recordedOperations } }
-}
-
 private final class OperationRecorder: @unchecked Sendable {
   private let lock = NSLock()
   private var recordedValues: [String] = []
@@ -665,31 +737,41 @@ private final class OperationRecorder: @unchecked Sendable {
   var values: [String] { lock.withLock { recordedValues } }
 }
 
-private final class UninstallLoginItemService: LoginItemServiceManaging, @unchecked Sendable {
+private final class RecordingLoginItemService: LoginItemServiceManaging, @unchecked Sendable {
   private let lock = NSLock()
   private let name: String
   private let operations: OperationRecorder
   private let unregistersBeforeThrowing: Bool
   private var currentStatus: ServiceRegistrationStatus
+  private var registerErrors: [Error]
   private var unregisterErrors: [Error]
 
   init(
     name: String,
     status: ServiceRegistrationStatus,
     operations: OperationRecorder,
+    registerErrors: [Error] = [],
     unregisterErrors: [Error] = [],
     unregistersBeforeThrowing: Bool = false
   ) {
     self.name = name
     currentStatus = status
     self.operations = operations
+    self.registerErrors = registerErrors
     self.unregisterErrors = unregisterErrors
     self.unregistersBeforeThrowing = unregistersBeforeThrowing
   }
 
   var status: ServiceRegistrationStatus { lock.withLock { currentStatus } }
 
-  func register() async throws {}
+  func register() async throws {
+    operations.record("\(name).register")
+    let error = lock.withLock { registerErrors.isEmpty ? nil : registerErrors.removeFirst() }
+    if let error {
+      throw error
+    }
+    lock.withLock { currentStatus = .enabled }
+  }
 
   func unregister() async throws {
     operations.record("\(name).unregister")
@@ -789,6 +871,8 @@ private struct MockAppCatalog: AppDisplayResolving {
 private enum MockError: LocalizedError {
   case saveFailed
   case reloadFailed
+  case statusFailed
+  case registerFailed
   case unregisterFailed
 
   var errorDescription: String? {
@@ -797,6 +881,10 @@ private enum MockError: LocalizedError {
       "The configuration could not be saved."
     case .reloadFailed:
       "The agent could not reload."
+    case .statusFailed:
+      "The agent status could not be read."
+    case .registerFailed:
+      "The login item could not start."
     case .unregisterFailed:
       "The login item could not stop."
     }

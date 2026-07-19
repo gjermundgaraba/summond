@@ -31,10 +31,11 @@ struct SummondApp: App {
       storage = .unavailable(message)
     }
 
-    _model = State(
-      initialValue: SummondModel(
-        storage: storage
-      ))
+    let model = SummondModel(storage: storage)
+    _model = State(initialValue: model)
+    Task { @MainActor in
+      await model.start()
+    }
   }
 
   var body: some Scene {
