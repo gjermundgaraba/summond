@@ -66,7 +66,11 @@
         settingsWindow.makeKeyAndOrderFront(nil)
         return
       }
-      let controller = NSHostingController(rootView: SettingsView(model: model))
+      let controller = NSHostingController(
+        rootView: SettingsView(
+          model: model,
+          uninstallApplicationManager: UITestUninstallApplicationManager()
+        ))
       let window = NSWindow(contentViewController: controller)
       window.styleMask = [.titled, .closable]
       window.setContentSize(NSSize(width: 560, height: 470))
@@ -109,7 +113,8 @@
         agentClient: agentClient,
         agentService: UITestLoginItemService(status: .enabled),
         statusItemService: UITestLoginItemService(status: .notRegistered),
-        appCatalog: UITestAppCatalog()
+        appCatalog: UITestAppCatalog(),
+        savedDataRemover: UITestSavedDataRemover()
       )
       sharedModel = model
       return model
@@ -215,6 +220,15 @@
     func register() async throws {}
     func unregister() async throws {}
     func openSystemSettingsLoginItems() {}
+  }
+
+  @MainActor
+  struct UITestUninstallApplicationManager: UninstallApplicationManaging {
+    func revealInFinderAndTerminate(applicationURL: URL) {}
+  }
+
+  struct UITestSavedDataRemover: SavedDataRemoving {
+    func removeAllSavedData() {}
   }
 
   struct UITestAppCatalog: AppDisplayResolving {

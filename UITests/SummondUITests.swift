@@ -213,6 +213,37 @@ final class SummondUITests: XCTestCase {
     XCTAssertTrue(waitForToggle(toggle, on: false), "Toggling off should disable verbose logging")
   }
 
+  /// The uninstall flow is discoverable, preserves data by default, and can be
+  /// cancelled without invoking lifecycle or service-management side effects.
+  func testPrepareToUninstallSheetCanBeConfiguredAndCancelled() {
+    let app = launch()
+    XCTAssertTrue(app.buttons["toolbar.addShortcut"].waitForExistence(timeout: launchTimeout))
+
+    app.typeKey(",", modifierFlags: .command)  // open Settings
+
+    let prepare = app.buttons["settings.prepareToUninstall"]
+    XCTAssertTrue(prepare.waitForExistence(timeout: uiTimeout), "Uninstall action not shown")
+    prepare.click()
+
+    XCTAssertTrue(
+      staticTextContaining(app, "Prepare to Uninstall Summond?")
+        .waitForExistence(timeout: uiTimeout),
+      "Uninstall confirmation sheet not shown")
+    let deleteSavedData = app.descendants(matching: .any)["uninstall.deleteSavedData"]
+    XCTAssertTrue(deleteSavedData.waitForExistence(timeout: uiTimeout))
+    XCTAssertTrue(waitForToggle(deleteSavedData, on: false), "Saved-data deletion should be off")
+
+    deleteSavedData.click()
+    XCTAssertTrue(waitForToggle(deleteSavedData, on: true))
+    XCTAssertTrue(
+      staticTextContaining(app, "permanently deleted").waitForExistence(timeout: uiTimeout))
+
+    app.sheets.buttons["Cancel"].firstMatch.click()
+    XCTAssertTrue(
+      waitForDisappearance(deleteSavedData, timeout: uiTimeout),
+      "Uninstall confirmation did not close")
+  }
+
   // MARK: - Reload failure is non-fatal
 
   /// When the agent reload fails, the save still persists locally and a

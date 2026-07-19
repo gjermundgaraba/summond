@@ -3,9 +3,18 @@ import SwiftUI
 
 struct SettingsView: View {
   var model: SummondModel
+  private let uninstallApplicationManager: any UninstallApplicationManaging
 
   @Environment(\.openURL) private var openURL
-  @State private var confirmsServiceDisable = false
+  @State private var showsUninstallPreparation = false
+
+  init(
+    model: SummondModel,
+    uninstallApplicationManager: any UninstallApplicationManaging = UninstallApplicationManager()
+  ) {
+    self.model = model
+    self.uninstallApplicationManager = uninstallApplicationManager
+  }
 
   var body: some View {
     TabView {
@@ -24,13 +33,11 @@ struct SettingsView: View {
     .task {
       await model.refresh()
     }
-    .alert("Disable Background Service?", isPresented: $confirmsServiceDisable) {
-      Button("Cancel", role: .cancel) {}
-      Button("Disable", role: .destructive) {
-        Task { await model.disableService() }
-      }
-    } message: {
-      Text("Global shortcuts will stop working until you enable the service again.")
+    .sheet(isPresented: $showsUninstallPreparation) {
+      PrepareToUninstallView(
+        model: model,
+        applicationManager: uninstallApplicationManager
+      )
     }
   }
 
@@ -64,7 +71,7 @@ struct SettingsView: View {
             }
           )
         )
-        .disabled(model.isStatusItemBusy)
+        .disabled(model.isStatusItemBusy || model.isPreparingToUninstall)
 
         if model.isStatusItemBusy {
           HStack(spacing: 8) {
@@ -99,6 +106,21 @@ struct SettingsView: View {
             model.openLoginItemsSettings()
           }
         }
+      }
+
+      Section("Uninstall") {
+        Button("Prepare to Uninstall…", role: .destructive) {
+          model.clearUninstallPreparationError()
+          showsUninstallPreparation = true
+        }
+        .disabled(
+          model.isPreparingToUninstall || model.isServiceBusy || model.isStatusItemBusy
+        )
+        .accessibilityIdentifier("settings.prepareToUninstall")
+
+        Text("Stops Summond’s background components before you move the app to the Trash.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
     }
     .formStyle(.grouped)
@@ -178,14 +200,6 @@ struct SettingsView: View {
         }
       }
 
-      Section {
-        Button("Disable Background Service…", role: .destructive) {
-          confirmsServiceDisable = true
-        }
-        .disabled(!model.serviceStatus.canUnregister || model.isServiceBusy)
-      } footer: {
-        Text("Disabling the service stops every global shortcut.")
-      }
     }
     .formStyle(.grouped)
   }
@@ -198,15 +212,6 @@ extension ServiceRegistrationStatus {
     case .requiresApproval: "Requires Approval"
     case .notRegistered: "Not Registered"
     case .notFound: "Not Found"
-    }
-  }
-
-  fileprivate var canUnregister: Bool {
-    switch self {
-    case .enabled, .requiresApproval:
-      true
-    case .notRegistered, .notFound:
-      false
     }
   }
 }

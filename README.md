@@ -50,6 +50,20 @@ the full release flow yourself.
 The app installs its service from inside the bundle with `SMAppService`. The
 agent runs only in your Aqua login session.
 
+## Uninstall
+
+1. Open Summond Settings > General.
+2. Click **Prepare to Uninstall…**.
+3. Optionally select **Delete saved shortcuts and settings**. Leave it unselected
+   if you want a future installation to restore your configuration.
+4. Click **Prepare and Quit**.
+5. Finder reveals `Summond.app`; move it to the Trash.
+
+Preparing to uninstall unregisters the background service and optional menu bar
+item before Summond quits. Deleting saved data removes Summond's local
+configuration and preferences. Accessibility and Input Monitoring permissions
+are managed separately by macOS and are not changed by this action.
+
 ## Privacy
 
 Summond processes keyboard events locally in the LaunchAgent to match
@@ -200,7 +214,10 @@ SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" make release-local
 ```
 
 `make release-build` is an alias for `make release-local`; it creates a signed
-Release app and zip without notarization for local validation.
+Release app and zip without notarization for local validation. The artifacts are
+written to `dist/release/Summond.app` and `dist/release/Summond.zip`. To install
+the local build, drag `dist/release/Summond.app` to `/Applications`, then follow
+the service and permission steps under [Install](#install).
 
 Create Developer ID artifacts and submit them for notarization:
 

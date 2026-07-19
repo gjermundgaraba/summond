@@ -24,6 +24,7 @@ final class SummondModel {
   private let agentService: any LoginItemServiceManaging
   private let statusItemService: any LoginItemServiceManaging
   private let appCatalog: any AppDisplayResolving
+  private let savedDataRemover: any SavedDataRemoving
 
   private(set) var configuration: SummondConfiguration
   private(set) var loadState: LoadState
@@ -39,11 +40,13 @@ final class SummondModel {
   private(set) var isReloading = false
   private(set) var isServiceBusy = false
   private(set) var isStatusItemBusy = false
+  private(set) var isPreparingToUninstall = false
 
   private(set) var configurationError: String?
   private(set) var reloadError: String?
   private(set) var serviceError: String?
   private(set) var statusItemError: String?
+  private(set) var uninstallPreparationError: String?
 
   @ObservationIgnored
   private var agentRequestSequence = 0
@@ -57,13 +60,15 @@ final class SummondModel {
     statusItemService: any LoginItemServiceManaging = LoginItemService(
       loginItemIdentifier: SummondBundleIdentifiers.statusItem
     ),
-    appCatalog: (any AppDisplayResolving)? = nil
+    appCatalog: (any AppDisplayResolving)? = nil,
+    savedDataRemover: any SavedDataRemoving = UserDefaultsSavedDataRemover()
   ) {
     self.storage = storage
     self.agentClient = agentClient
     self.agentService = agentService
     self.statusItemService = statusItemService
     self.appCatalog = appCatalog ?? InstalledAppCatalog()
+    self.savedDataRemover = savedDataRemover
     self.serviceStatus = agentService.status
     self.statusItemStatus = statusItemService.status
 
@@ -291,12 +296,6 @@ final class SummondModel {
     }
   }
 
-  func disableService() async {
-    await runServiceOperation {
-      try await agentService.unregister()
-    }
-  }
-
   func restartService() async {
     await runServiceOperation {
       try await agentService.unregister()
@@ -307,7 +306,7 @@ final class SummondModel {
   func setStatusItemShown(_ isShown: Bool) async {
     // Settings disables the toggle during this operation. Dropping a second
     // request also protects SMAppService from overlapping register calls.
-    guard !isStatusItemBusy else {
+    guard !isStatusItemBusy, !isPreparingToUninstall else {
       return
     }
     isStatusItemBusy = true
@@ -331,6 +330,55 @@ final class SummondModel {
       }
     }
     statusItemStatus = statusItemService.status
+  }
+
+  func clearUninstallPreparationError() {
+    uninstallPreparationError = nil
+  }
+
+  func prepareForUninstall(deleteSavedData: Bool) async -> Bool {
+    guard !isPreparingToUninstall, !isServiceBusy, !isStatusItemBusy else {
+      uninstallPreparationError = "Another background operation is still in progress."
+      return false
+    }
+
+    isPreparingToUninstall = true
+    uninstallPreparationError = nil
+    defer {
+      isPreparingToUninstall = false
+      refreshRegistrationStatuses()
+    }
+
+    if agentService.status.needsUnregisterForUninstall {
+      do {
+        try await agentService.unregister()
+        serviceError = nil
+        agentStatus = nil
+      } catch {
+        serviceError = error.localizedDescription
+        uninstallPreparationError =
+          "The background service could not be unregistered: \(error.localizedDescription)"
+        return false
+      }
+    }
+
+    if statusItemService.status.needsUnregisterForUninstall {
+      do {
+        try await statusItemService.unregister()
+        statusItemError = nil
+      } catch {
+        statusItemError = error.localizedDescription
+        uninstallPreparationError =
+          "The menu bar item could not be unregistered: \(error.localizedDescription)"
+        return false
+      }
+    }
+    terminateStatusItem()
+
+    if deleteSavedData {
+      savedDataRemover.removeAllSavedData()
+    }
+    return true
   }
 
   func requestAccessibilitySetup() {
@@ -435,7 +483,7 @@ final class SummondModel {
   }
 
   private func runServiceOperation(_ operation: () async throws -> Void) async {
-    guard !isServiceBusy else {
+    guard !isServiceBusy, !isPreparingToUninstall else {
       return
     }
     isServiceBusy = true
@@ -489,5 +537,16 @@ final class SummondModel {
       return
     }
     NSWorkspace.shared.open(url)
+  }
+}
+
+extension ServiceRegistrationStatus {
+  fileprivate var needsUnregisterForUninstall: Bool {
+    switch self {
+    case .enabled, .requiresApproval:
+      true
+    case .notRegistered, .notFound:
+      false
+    }
   }
 }
