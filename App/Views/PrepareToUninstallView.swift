@@ -5,6 +5,7 @@ struct PrepareToUninstallView: View {
   let applicationManager: any UninstallApplicationManaging
 
   @State private var deleteSavedData = false
+  @State private var revealAndTerminateOnDismiss = false
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -69,7 +70,11 @@ struct PrepareToUninstallView: View {
             guard await model.prepareForUninstall(deleteSavedData: deleteSavedData) else {
               return
             }
-            applicationManager.revealInFinderAndTerminate(applicationURL: Bundle.main.bundleURL)
+            // Terminating while this sheet is still presented silently stalls:
+            // SwiftUI's application delegate never completes termination while
+            // a sheet is up. Dismiss first and terminate from onDisappear.
+            revealAndTerminateOnDismiss = true
+            dismiss()
           }
         }
         .disabled(model.isPreparingToUninstall)
@@ -79,5 +84,15 @@ struct PrepareToUninstallView: View {
     .padding(24)
     .frame(width: 460)
     .interactiveDismissDisabled(model.isPreparingToUninstall)
+    .onDisappear {
+      guard revealAndTerminateOnDismiss else {
+        return
+      }
+      // Let the dismissal transaction finish before terminating so the app
+      // is not torn down mid-update.
+      DispatchQueue.main.async {
+        applicationManager.revealInFinderAndTerminate(applicationURL: Bundle.main.bundleURL)
+      }
+    }
   }
 }
