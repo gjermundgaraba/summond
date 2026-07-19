@@ -1,18 +1,28 @@
 import Foundation
 
-public enum BindingValidationError: Error, Equatable, Sendable {
+public enum ShortcutValidationError: Error, Equatable, Sendable {
   case unknownKey(String)
   case unknownModifiers([String])
-  case emptyBundleID
 }
 
-extension BindingValidationError: LocalizedError {
+extension ShortcutValidationError: LocalizedError {
   public var errorDescription: String? {
     switch self {
     case .unknownKey(let key):
       "Unknown key '\(key)'"
     case .unknownModifiers(let modifiers):
       "Unknown modifier(s): \(modifiers.joined(separator: ", "))"
+    }
+  }
+}
+
+public enum AppTargetValidationError: Error, Equatable, Sendable {
+  case emptyBundleID
+}
+
+extension AppTargetValidationError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
     case .emptyBundleID:
       "Bundle ID cannot be empty"
     }
@@ -51,10 +61,10 @@ public struct AppTarget: Codable, Sendable, Equatable {
   public var bundleID: String
   public var mode: AppOpenMode
 
-  public init(bundleID: String, mode: AppOpenMode) throws {
+  public init(bundleID: String, mode: AppOpenMode) throws(AppTargetValidationError) {
     let trimmedBundleID = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedBundleID.isEmpty else {
-      throw BindingValidationError.emptyBundleID
+      throw .emptyBundleID
     }
 
     self.bundleID = trimmedBundleID

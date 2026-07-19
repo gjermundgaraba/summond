@@ -17,7 +17,7 @@ packages:
     path: Core
   PermissionFlow:
     url: https://github.com/jaywcjlove/PermissionFlow
-    exactVersion: 2.6.0
+    revision: a3ba66315b757d7f5e5893d0f4ff5df8cf93f9ea
 targets:
   Summond:
     type: application

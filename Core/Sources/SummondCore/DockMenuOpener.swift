@@ -176,11 +176,7 @@ struct DockMenuOpener: Sendable {
       return false
     }
 
-    if isCommandNMenuItem(element) {
-      return true
-    }
-
-    return stringAttribute(kAXTitleAttribute as CFString, of: element) == Self.newWindowTitle
+    return isCommandNMenuItem(element)
   }
 
   private func isCommandNMenuItem(_ element: AXUIElement) -> Bool {
@@ -219,7 +215,6 @@ struct DockMenuOpener: Sendable {
     return value as? T
   }
 
-  private static let newWindowTitle = "New Window"
   private static let commandOnlyModifier: UInt32 = 0
   private static let noCommandModifier: UInt32 = 1 << 3
 

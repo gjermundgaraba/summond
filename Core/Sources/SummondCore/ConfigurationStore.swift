@@ -63,15 +63,18 @@ extension ConfigurationCorruption: LocalizedError {
 }
 
 public enum ConfigurationValidationError: Error, Equatable, Sendable {
-  case invalidBinding(index: Int, error: BindingValidationError)
+  case invalidShortcut(index: Int, error: ShortcutValidationError)
+  case invalidTarget(index: Int, error: AppTargetValidationError)
   case duplicateShortcut(index: Int, description: String)
 }
 
 extension ConfigurationValidationError: LocalizedError {
   public var errorDescription: String? {
     switch self {
-    case .invalidBinding(let index, let error):
-      "Configuration contains invalid binding #\(index): \(error.localizedDescription)"
+    case .invalidShortcut(let index, let error):
+      "Configuration contains invalid shortcut at binding #\(index): \(error.localizedDescription)"
+    case .invalidTarget(let index, let error):
+      "Configuration contains invalid target at binding #\(index): \(error.localizedDescription)"
     case .duplicateShortcut(let index, let description):
       "Configuration contains duplicate shortcut at binding #\(index): '\(description)'"
     }
@@ -166,10 +169,6 @@ public final class InMemoryConfigurationStore: @unchecked Sendable, Configuratio
   }
 }
 
-public func validateConfiguration(_ configuration: SummondConfiguration) throws {
-  try ConfigurationValidator.validate(configuration)
-}
-
 enum ConfigurationCodec {
   static func encode(_ configuration: SummondConfiguration) throws -> Data {
     let encoder = JSONEncoder()
@@ -193,10 +192,8 @@ enum ConfigurationCodec {
 
     do {
       try ConfigurationValidator.validate(configuration)
-    } catch let error as ConfigurationValidationError {
-      return .corrupt(.invalid(error))
     } catch {
-      return .corrupt(.undecodable(error.localizedDescription))
+      return .corrupt(.invalid(error))
     }
 
     return .loaded(configuration)
@@ -204,24 +201,24 @@ enum ConfigurationCodec {
 }
 
 enum ConfigurationValidator {
-  static func validate(_ configuration: SummondConfiguration) throws {
+  static func validate(_ configuration: SummondConfiguration) throws(ConfigurationValidationError) {
     var seenShortcuts: Set<CompiledShortcut> = []
     for (offset, binding) in configuration.bindings.enumerated() {
       let index = offset + 1
       guard !binding.target.bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       else {
-        throw ConfigurationValidationError.invalidBinding(index: index, error: .emptyBundleID)
+        throw .invalidTarget(index: index, error: .emptyBundleID)
       }
 
       let shortcut: CompiledShortcut
       do {
         shortcut = try BindingCompiler.compileShortcut(binding.shortcut)
-      } catch let error as BindingValidationError {
-        throw ConfigurationValidationError.invalidBinding(index: index, error: error)
+      } catch {
+        throw .invalidShortcut(index: index, error: error)
       }
 
       guard seenShortcuts.insert(shortcut).inserted else {
-        throw ConfigurationValidationError.duplicateShortcut(
+        throw .duplicateShortcut(
           index: index, description: binding.shortcut.description)
       }
     }

@@ -323,7 +323,6 @@ private final class MockConfigurationStore: @unchecked Sendable, ConfigurationSt
     if let saveError {
       throw saveError
     }
-    try validateConfiguration(configuration)
     savedConfigurations.append(configuration)
   }
 }

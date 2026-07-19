@@ -101,21 +101,21 @@ struct ConfigurationStoreTests {
           shortcut: Shortcut(key: "nonexistent", mods: ["cmd"]),
           target: try AppTarget(bundleID: "com.apple.Safari", mode: .launch)
         ),
-        .invalidBinding(index: 1, error: .unknownKey("nonexistent"))
+        .invalidShortcut(index: 1, error: .unknownKey("nonexistent"))
       ),
       (
         configuration(
           shortcut: Shortcut(key: "a", mods: ["cmd", "super"]),
           target: try AppTarget(bundleID: "com.apple.Safari", mode: .launch)
         ),
-        .invalidBinding(index: 1, error: .unknownModifiers(["super"]))
+        .invalidShortcut(index: 1, error: .unknownModifiers(["super"]))
       ),
       (
         configuration(
           shortcut: Shortcut(key: "a", mods: ["cmd"]),
           target: AppTarget(uncheckedBundleID: "", mode: .launch)
         ),
-        .invalidBinding(index: 1, error: .emptyBundleID)
+        .invalidTarget(index: 1, error: .emptyBundleID)
       ),
       (
         SummondConfiguration(
@@ -142,7 +142,6 @@ struct ConfigurationStoreTests {
     )
     let store = InMemoryConfigurationStore()
 
-    try validateConfiguration(configuration)
     try store.save(configuration)
 
     #expect(store.load() == .loaded(configuration))

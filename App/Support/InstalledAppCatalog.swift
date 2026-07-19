@@ -102,5 +102,5 @@ private actor InstalledApplicationEnumerator {
 }
 
 private func appDisplayName(for url: URL) -> String {
-  FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+  (FileManager.default.displayName(atPath: url.path) as NSString).deletingPathExtension
 }
