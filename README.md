@@ -31,6 +31,12 @@ part of CI.
 
 ## Install
 
+Download the latest signed and notarized release from
+[GitHub Releases](https://github.com/gjermundgaraba/summond/releases/latest).
+Published release builds are Developer ID signed and notarized. Building from
+source (below) produces local artifacts that are not notarized unless you run
+the full release flow yourself.
+
 1. Drag `Summond.app` to `/Applications`.
 2. Open `Summond.app`.
 3. Click **Enable Service**.
@@ -43,6 +49,17 @@ part of CI.
 
 The app installs its service from inside the bundle with `SMAppService`. The
 agent runs only in your Aqua login session.
+
+## Privacy
+
+Summond processes keyboard events locally in the LaunchAgent to match
+configured shortcuts. It does not send telemetry, analytics, or keystroke data
+anywhere, and it makes no network requests for its core behavior. Only matching
+shortcuts are consumed; non-matching key events pass through unchanged. Normal
+logs record operational events; verbose logging (optional) adds more detail for
+debugging and may include shortcut-related information in the unified system
+log. Configuration is stored locally in the shared UserDefaults suite
+`net.garaba.summond.shared`.
 
 ## Configure Shortcuts
 
@@ -69,9 +86,11 @@ Representative supported keys include letters, numbers, function keys
 
 **New Window** prefers a window on the current Space, detected via
 runtime-resolved private SkyLight queries. If the app is running but has no
-window on the current Space, Summond asks the Dock for the app's **New Window**
-menu item, waits for a window on the current Space, and then activates the app.
-If Dock menu access, window creation, or activation fails, the shortcut is still
+window on the current Space, Summond asks the Dock menu for the item whose
+keyboard equivalent is Command-N (the conventional "New Window" shortcut),
+waits for a window on the current Space, and then activates the app. Apps that
+do not expose that Dock menu shortcut fall back to activation only. If Dock
+menu access, window creation, or activation fails, the shortcut is still
 consumed and the failure is logged.
 
 **Move Here** brings existing windows to the current Space when possible. It uses

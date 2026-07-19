@@ -2,7 +2,7 @@
 set -euo pipefail
 
 base_vm="${1:-summond-macos-tahoe-xcodegen-base}"
-source_image="${SUMMOND_TART_SOURCE_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode:latest}"
+source_image="${SUMMOND_TART_SOURCE_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6}"
 ready_timeout=300
 run_pid=""
 started_vm=0

@@ -61,14 +61,16 @@ public struct CompiledBindings: Sendable {
 }
 
 public enum BindingCompiler {
-  public static func compileShortcut(_ shortcut: Shortcut) throws -> CompiledShortcut {
+  public static func compileShortcut(_ shortcut: Shortcut) throws(ShortcutValidationError)
+    -> CompiledShortcut
+  {
     guard let keyCode = KeyCode.resolve(shortcut.key) else {
-      throw BindingValidationError.unknownKey(shortcut.key)
+      throw .unknownKey(shortcut.key)
     }
 
     guard let modifiers = KeyCode.resolveModifiers(shortcut.mods) else {
       let invalid = shortcut.mods.filter { KeyCode.resolveModifiers([$0]) == nil }
-      throw BindingValidationError.unknownModifiers(invalid)
+      throw .unknownModifiers(invalid)
     }
 
     return CompiledShortcut(keyCode: keyCode, modifiers: modifiers)
@@ -80,7 +82,7 @@ public enum BindingCompiler {
   public static func compile(
     _ bindings: [AppBinding],
     appResolver: any AppResolver
-  ) throws -> CompiledBindings {
+  ) throws(ConfigurationValidationError) -> CompiledBindings {
     var compiledBindings: [CompiledShortcut: CompiledAppBinding] = [:]
     var seenShortcuts: Set<CompiledShortcut> = []
     var unresolvedBundleIDs: [String] = []
@@ -90,12 +92,12 @@ public enum BindingCompiler {
       let shortcut: CompiledShortcut
       do {
         shortcut = try compileShortcut(binding.shortcut)
-      } catch let error as BindingValidationError {
-        throw ConfigurationValidationError.invalidBinding(index: index, error: error)
+      } catch {
+        throw .invalidShortcut(index: index, error: error)
       }
 
       guard seenShortcuts.insert(shortcut).inserted else {
-        throw ConfigurationValidationError.duplicateShortcut(
+        throw .duplicateShortcut(
           index: index,
           description: binding.shortcut.description
         )

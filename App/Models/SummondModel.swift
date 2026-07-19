@@ -102,10 +102,6 @@ final class SummondModel {
     return SystemHealth.evaluate(serviceStatus: serviceStatus, agentStatus: agentStatus)
   }
 
-  var servicePresentation: ServiceRegistrationPresentation {
-    ServiceRegistrationStatusMapper.presentation(for: serviceStatus)
-  }
-
   /// A service awaiting approval represents an enabled user preference even
   /// though macOS has not allowed it to launch yet.
   var isStatusItemShown: Bool {
@@ -150,17 +146,13 @@ final class SummondModel {
     if let shortcut = draft.shortcut.shortcut {
       do {
         compiledShortcut = try BindingCompiler.compileShortcut(shortcut)
-      } catch let error as BindingValidationError {
+      } catch {
         switch error {
         case .unknownKey(let key):
           issues.append(.unsupportedKey(key))
         case .unknownModifiers(let modifiers):
           issues.append(.unsupportedModifiers(modifiers))
-        case .emptyBundleID:
-          issues.append(.unsupportedKey(shortcut.key))
         }
-      } catch {
-        issues.append(.unsupportedKey(shortcut.key))
       }
 
       if compiledShortcut != nil,

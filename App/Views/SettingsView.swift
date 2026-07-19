@@ -86,7 +86,7 @@ struct SettingsView: View {
       }
 
       Section("Setup") {
-        LabeledContent("Background service", value: model.servicePresentation.title)
+        LabeledContent("Background service", value: model.serviceStatus.settingsTitle)
 
         Button("Open Setup Assistant…") {
           if let url = URL(string: "summond://setup") {
@@ -182,12 +182,32 @@ struct SettingsView: View {
         Button("Disable Background Service…", role: .destructive) {
           confirmsServiceDisable = true
         }
-        .disabled(!model.servicePresentation.canUnregister || model.isServiceBusy)
+        .disabled(!model.serviceStatus.canUnregister || model.isServiceBusy)
       } footer: {
         Text("Disabling the service stops every global shortcut.")
       }
     }
     .formStyle(.grouped)
+  }
+}
+
+extension ServiceRegistrationStatus {
+  fileprivate var settingsTitle: String {
+    switch self {
+    case .enabled: "Enabled"
+    case .requiresApproval: "Requires Approval"
+    case .notRegistered: "Not Registered"
+    case .notFound: "Not Found"
+    }
+  }
+
+  fileprivate var canUnregister: Bool {
+    switch self {
+    case .enabled, .requiresApproval:
+      true
+    case .notRegistered, .notFound:
+      false
+    }
   }
 }
 

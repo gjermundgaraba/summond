@@ -202,6 +202,12 @@ release_preflight() {
 
 local_preflight() {
   log "Running local preflight"
+  if [[ "$SMOKE_MODE" -eq 1 ]]; then
+    SIGNING_IDENTITY="-"
+    log "Using ad-hoc signing for SMOKE_TEST"
+  else
+    require_signing_identity
+  fi
   if [[ -n "$TEAM_ID" ]]; then
     log "Using team id $TEAM_ID"
   fi
@@ -220,10 +226,11 @@ build_release_app() {
   local swiftpm_cache="$ROOT_DIR/.build/release-swiftpm-cache"
   mkdir -p "$build_home" "$module_cache" "$swiftpm_cache"
 
-  local -a extra_build_settings=()
+  # Bash 3.2 + set -u rejects empty-array expansion; use positional params.
+  set --
   if [[ "$SMOKE_MODE" -eq 1 ]]; then
     log "Building SMOKE_TEST entry point"
-    extra_build_settings+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS=SMOKE_TEST)
+    set -- SWIFT_ACTIVE_COMPILATION_CONDITIONS=SMOKE_TEST
   fi
 
   HOME="$build_home" \
@@ -239,7 +246,7 @@ build_release_app() {
     -clonedSourcePackagesDirPath "$swiftpm_cache/source-packages" \
     CODE_SIGNING_ALLOWED=NO \
     CLANG_MODULE_CACHE_PATH="$module_cache" \
-    "${extra_build_settings[@]}" \
+    "$@" \
     build
 }
 
@@ -291,11 +298,7 @@ sign_path() {
 
 sign_artifacts() {
   log "Signing nested code innermost first"
-  if [[ "$SMOKE_MODE" -eq 1 ]]; then
-    SIGNING_IDENTITY="-"
-  else
-    require_signing_identity
-  fi
+  [[ -n "$SIGNING_IDENTITY" ]] || die "signing identity was not resolved during preflight."
 
   local status_app="$APP_PATH/Contents/Library/LoginItems/SummondStatus.app"
   local agent_app="$APP_PATH/Contents/MacOS/SummondAgent.app"

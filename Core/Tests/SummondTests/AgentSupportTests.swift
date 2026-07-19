@@ -39,37 +39,6 @@ struct AgentStatusTests {
   }
 }
 
-@Suite("Service registration status")
-struct ServiceRegistrationStatusTests {
-  @Test("Maps mocked SMAppService states to presentation state")
-  func mapsMockedStates() {
-    #expect(
-      ServiceRegistrationStatusMapper.presentation(for: .enabled)
-        == ServiceRegistrationPresentation(
-          title: "Enabled",
-          canRegister: false,
-          canUnregister: true,
-          needsApproval: false
-        )
-    )
-    #expect(
-      ServiceRegistrationStatusMapper.presentation(for: .notRegistered)
-        == ServiceRegistrationPresentation(
-          title: "Not Registered",
-          canRegister: true,
-          canUnregister: false,
-          needsApproval: false
-        )
-    )
-    #expect(
-      ServiceRegistrationStatusMapper.presentation(for: .requiresApproval).needsApproval == true
-    )
-    #expect(
-      ServiceRegistrationStatusMapper.presentation(for: .notFound).canRegister == false
-    )
-  }
-}
-
 @Suite("System health")
 struct SystemHealthTests {
   @Test("Evaluates every agent health outcome in precedence order")
@@ -432,7 +401,7 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
   }
 
   func save(_ configuration: SummondConfiguration) throws {
-    try validateConfiguration(configuration)
+    try ConfigurationValidator.validate(configuration)
     self.configuration = configuration
   }
 }
