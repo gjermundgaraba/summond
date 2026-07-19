@@ -267,18 +267,190 @@ struct SummondModelTests {
     #expect(service.operations == ["unregister", "register"])
   }
 
+  @Test("Uninstall preparation unregisters the agent before the menu bar item")
+  func prepareForUninstallInOrder() async {
+    let operations = OperationRecorder()
+    let agent = UninstallLoginItemService(
+      name: "agent", status: .enabled, operations: operations)
+    let statusItem = UninstallLoginItemService(
+      name: "status", status: .requiresApproval, operations: operations)
+    let savedData = MockSavedDataRemover()
+    let model = makeModel(
+      agentService: agent,
+      statusItemService: statusItem,
+      savedDataRemover: savedData
+    )
+
+    #expect(await model.prepareForUninstall(deleteSavedData: false))
+    #expect(operations.values == ["agent.unregister", "status.unregister"])
+    #expect(agent.status == .notRegistered)
+    #expect(statusItem.status == .notRegistered)
+    #expect(savedData.removeCalls == 0)
+    #expect(model.uninstallPreparationError == nil)
+  }
+
+  @Test("Uninstall preparation skips absent components and optionally deletes data")
+  func prepareForUninstallSkipsAbsentComponents() async {
+    let operations = OperationRecorder()
+    let savedData = MockSavedDataRemover()
+    let model = makeModel(
+      agentService: UninstallLoginItemService(
+        name: "agent", status: .notRegistered, operations: operations),
+      statusItemService: UninstallLoginItemService(
+        name: "status", status: .notFound, operations: operations),
+      savedDataRemover: savedData
+    )
+
+    #expect(await model.prepareForUninstall(deleteSavedData: true))
+    #expect(operations.values.isEmpty)
+    #expect(savedData.removeCalls == 1)
+  }
+
+  @Test("Saved data cleanup covers every Summond preferences domain")
+  func savedDataCleanupDomains() {
+    #expect(
+      Set(UserDefaultsSavedDataRemover.summondDomainNames) == [
+        SummondBundleIdentifiers.app,
+        UserDefaultsConfigurationStore.defaultSuiteName,
+        SummondBundleIdentifiers.agent,
+        SummondBundleIdentifiers.statusItem,
+      ])
+  }
+
+  @Test("Saved data remover clears each configured preferences domain")
+  func savedDataRemoverClearsDomains() {
+    let domainNames = [
+      "net.garaba.summond.tests.uninstall.\(UUID().uuidString)",
+      "net.garaba.summond.tests.uninstall.\(UUID().uuidString)",
+    ]
+    defer {
+      for domainName in domainNames {
+        UserDefaults.standard.removePersistentDomain(forName: domainName)
+      }
+    }
+    for domainName in domainNames {
+      UserDefaults.standard.setPersistentDomain(["value": "saved"], forName: domainName)
+      #expect(UserDefaults.standard.persistentDomain(forName: domainName) != nil)
+    }
+
+    UserDefaultsSavedDataRemover(domainNames: domainNames).removeAllSavedData()
+
+    for domainName in domainNames {
+      #expect(UserDefaults.standard.persistentDomain(forName: domainName) == nil)
+    }
+  }
+
+  @Test("Agent unregister failure stops uninstall preparation immediately")
+  func prepareForUninstallStopsAfterAgentFailure() async {
+    let operations = OperationRecorder()
+    let savedData = MockSavedDataRemover()
+    let model = makeModel(
+      agentService: UninstallLoginItemService(
+        name: "agent",
+        status: .enabled,
+        operations: operations,
+        unregisterErrors: [MockError.unregisterFailed]
+      ),
+      statusItemService: UninstallLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      savedDataRemover: savedData
+    )
+
+    #expect(!(await model.prepareForUninstall(deleteSavedData: true)))
+    #expect(operations.values == ["agent.unregister"])
+    #expect(savedData.removeCalls == 0)
+    #expect(model.uninstallPreparationError?.contains("background service") == true)
+  }
+
+  @Test("Thrown unregister fails preparation even when the component ended up unregistered")
+  func prepareForUninstallTreatsThrownUnregisterAsFailure() async {
+    let operations = OperationRecorder()
+    let savedData = MockSavedDataRemover()
+    let model = makeModel(
+      agentService: UninstallLoginItemService(
+        name: "agent",
+        status: .enabled,
+        operations: operations,
+        unregisterErrors: [MockError.unregisterFailed],
+        unregistersBeforeThrowing: true
+      ),
+      statusItemService: UninstallLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      savedDataRemover: savedData
+    )
+
+    #expect(!(await model.prepareForUninstall(deleteSavedData: true)))
+    #expect(operations.values == ["agent.unregister"])
+    #expect(savedData.removeCalls == 0)
+    #expect(model.uninstallPreparationError?.contains("background service") == true)
+
+    #expect(await model.prepareForUninstall(deleteSavedData: true))
+    #expect(operations.values == ["agent.unregister", "status.unregister"])
+    #expect(savedData.removeCalls == 1)
+  }
+
+  @Test("Menu bar failure preserves data and retry skips the removed agent")
+  func prepareForUninstallRetriesStatusItem() async {
+    let operations = OperationRecorder()
+    let savedData = MockSavedDataRemover()
+    let agent = UninstallLoginItemService(
+      name: "agent", status: .enabled, operations: operations)
+    let statusItem = UninstallLoginItemService(
+      name: "status",
+      status: .enabled,
+      operations: operations,
+      unregisterErrors: [MockError.unregisterFailed]
+    )
+    let model = makeModel(
+      agentService: agent,
+      statusItemService: statusItem,
+      savedDataRemover: savedData
+    )
+
+    #expect(!(await model.prepareForUninstall(deleteSavedData: true)))
+    #expect(operations.values == ["agent.unregister", "status.unregister"])
+    #expect(savedData.removeCalls == 0)
+    #expect(model.uninstallPreparationError?.contains("menu bar item") == true)
+
+    #expect(await model.prepareForUninstall(deleteSavedData: true))
+    #expect(
+      operations.values == ["agent.unregister", "status.unregister", "status.unregister"])
+    #expect(savedData.removeCalls == 1)
+  }
+
+  @Test("Uninstall preparation blocks overlapping service operations")
+  func prepareForUninstallBlocksOtherOperations() async throws {
+    let agent = SuspendingUnregisterLoginItemService()
+    let statusItem = CountingLoginItemService(status: .notRegistered)
+    let model = makeModel(agentService: agent, statusItemService: statusItem)
+
+    let preparation = Task { await model.prepareForUninstall(deleteSavedData: false) }
+    try #require(await agent.waitUntilUnregisterSuspended())
+
+    await model.enableService()
+    await model.setStatusItemShown(true)
+    #expect(agent.registerCalls == 0)
+    #expect(statusItem.operations.isEmpty)
+
+    agent.resumeUnregister()
+    #expect(await preparation.value)
+    #expect(!model.isPreparingToUninstall)
+  }
+
   private func makeModel(
     store: MockConfigurationStore = MockConfigurationStore(loadResult: .fresh(.empty)),
     agentClient: any AgentClientProtocol = MockAgentClient(),
     agentService: any LoginItemServiceManaging = StubLoginItemService(status: .enabled),
-    statusItemService: any LoginItemServiceManaging = StubLoginItemService(status: .notRegistered)
+    statusItemService: any LoginItemServiceManaging = StubLoginItemService(status: .notRegistered),
+    savedDataRemover: any SavedDataRemoving = MockSavedDataRemover()
   ) -> SummondModel {
     SummondModel(
       storage: .available(store),
       agentClient: agentClient,
       agentService: agentService,
       statusItemService: statusItemService,
-      appCatalog: MockAppCatalog()
+      appCatalog: MockAppCatalog(),
+      savedDataRemover: savedDataRemover
     )
   }
 
@@ -482,6 +654,114 @@ private final class CountingLoginItemService: LoginItemServiceManaging, @uncheck
   var operations: [String] { lock.withLock { recordedOperations } }
 }
 
+private final class OperationRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var recordedValues: [String] = []
+
+  func record(_ value: String) {
+    lock.withLock { recordedValues.append(value) }
+  }
+
+  var values: [String] { lock.withLock { recordedValues } }
+}
+
+private final class UninstallLoginItemService: LoginItemServiceManaging, @unchecked Sendable {
+  private let lock = NSLock()
+  private let name: String
+  private let operations: OperationRecorder
+  private let unregistersBeforeThrowing: Bool
+  private var currentStatus: ServiceRegistrationStatus
+  private var unregisterErrors: [Error]
+
+  init(
+    name: String,
+    status: ServiceRegistrationStatus,
+    operations: OperationRecorder,
+    unregisterErrors: [Error] = [],
+    unregistersBeforeThrowing: Bool = false
+  ) {
+    self.name = name
+    currentStatus = status
+    self.operations = operations
+    self.unregisterErrors = unregisterErrors
+    self.unregistersBeforeThrowing = unregistersBeforeThrowing
+  }
+
+  var status: ServiceRegistrationStatus { lock.withLock { currentStatus } }
+
+  func register() async throws {}
+
+  func unregister() async throws {
+    operations.record("\(name).unregister")
+    let error = lock.withLock { unregisterErrors.isEmpty ? nil : unregisterErrors.removeFirst() }
+    if let error {
+      if unregistersBeforeThrowing {
+        lock.withLock { currentStatus = .notRegistered }
+      }
+      throw error
+    }
+    lock.withLock { currentStatus = .notRegistered }
+  }
+
+  func openSystemSettingsLoginItems() {}
+}
+
+private final class SuspendingUnregisterLoginItemService: LoginItemServiceManaging,
+  @unchecked Sendable
+{
+  private let lock = NSLock()
+  private var currentStatus: ServiceRegistrationStatus = .enabled
+  private var pendingUnregister: CheckedContinuation<Void, Never>?
+  private var registerCount = 0
+
+  var status: ServiceRegistrationStatus { lock.withLock { currentStatus } }
+
+  func register() async throws {
+    lock.withLock { registerCount += 1 }
+  }
+
+  func unregister() async throws {
+    await withCheckedContinuation { continuation in
+      lock.withLock { pendingUnregister = continuation }
+    }
+    lock.withLock { currentStatus = .notRegistered }
+  }
+
+  func openSystemSettingsLoginItems() {}
+
+  var registerCalls: Int { lock.withLock { registerCount } }
+
+  func waitUntilUnregisterSuspended() async -> Bool {
+    for _ in 0..<500 {
+      if lock.withLock({ pendingUnregister != nil }) {
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(2))
+    }
+    return false
+  }
+
+  func resumeUnregister() {
+    let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+      let continuation = pendingUnregister
+      pendingUnregister = nil
+      return continuation
+    }
+    continuation?.resume()
+  }
+}
+
+private final class MockSavedDataRemover: SavedDataRemoving, @unchecked Sendable {
+  private let lock = NSLock()
+  private var count = 0
+
+  func removeAllSavedData() {
+    lock.withLock { count += 1 }
+  }
+
+  var removeCalls: Int { lock.withLock { count } }
+}
+
 private struct StubLoginItemService: LoginItemServiceManaging {
   let status: ServiceRegistrationStatus
   func register() async throws {}
@@ -509,6 +789,7 @@ private struct MockAppCatalog: AppDisplayResolving {
 private enum MockError: LocalizedError {
   case saveFailed
   case reloadFailed
+  case unregisterFailed
 
   var errorDescription: String? {
     switch self {
@@ -516,6 +797,8 @@ private enum MockError: LocalizedError {
       "The configuration could not be saved."
     case .reloadFailed:
       "The agent could not reload."
+    case .unregisterFailed:
+      "The login item could not stop."
     }
   }
 }

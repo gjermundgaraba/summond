@@ -121,7 +121,7 @@ struct SetupAssistantView: View {
           Button("Restart Service") {
             Task { await model.restartService() }
           }
-          .disabled(model.isServiceBusy)
+          .disabled(model.isServiceBusy || model.isPreparingToUninstall)
         }
       case .requiresApproval:
         Button("Open Login Items…") {
@@ -131,7 +131,7 @@ struct SetupAssistantView: View {
         Button(model.serviceError == nil ? "Enable Service" : "Try Again") {
           Task { await model.enableService() }
         }
-        .disabled(model.isServiceBusy)
+        .disabled(model.isServiceBusy || model.isPreparingToUninstall)
       }
     }
   }

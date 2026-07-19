@@ -42,7 +42,8 @@ core-build:
 test: core-test app-test
 
 core-test:
-	swift test --package-path Core
+	swift build --build-tests --package-path Core
+	swift test --skip-build --package-path Core
 
 app-test: project
 	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)'
