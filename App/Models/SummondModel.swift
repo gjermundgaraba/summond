@@ -125,6 +125,15 @@ final class SummondModel {
     statusItemStatus == .enabled || statusItemStatus == .requiresApproval
   }
 
+  var canResetCorruptConfiguration: Bool {
+    switch loadState {
+    case .corrupt(.undecodable), .corrupt(.invalid):
+      true
+    default:
+      false
+    }
+  }
+
   func displayInfo(for bundleID: String) -> AppDisplayInfo {
     appCatalog.displayInfo(for: bundleID)
   }

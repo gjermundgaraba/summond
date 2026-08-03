@@ -59,6 +59,13 @@ struct SettingsView: View {
         Text("Records additional shortcut and window-matching details for troubleshooting.")
           .font(.caption)
           .foregroundStyle(.secondary)
+
+        if let error = model.configurationError ?? model.reloadError {
+          Label(error, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+        }
       }
 
       Section("Menu Bar") {

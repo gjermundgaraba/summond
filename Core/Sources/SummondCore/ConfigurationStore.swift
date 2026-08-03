@@ -55,7 +55,7 @@ extension ConfigurationCorruption: LocalizedError {
     case .undecodable(let message):
       "Configuration data could not be decoded: \(message)"
     case .unsupportedSchemaVersion(let version):
-      "Unsupported configuration schema version \(version)"
+      "This configuration uses schema version \(version), which this version of Summond cannot edit. Open it with a compatible Summond version. Your saved configuration has not been changed."
     case .invalid(let error):
       error.localizedDescription
     }
@@ -137,6 +137,8 @@ public final class UserDefaultsConfigurationStore: @unchecked Sendable, Configur
 
   public func save(_ configuration: SummondConfiguration) throws {
     try ConfigurationValidator.validate(configuration)
+    defaults.synchronize()
+    try ConfigurationCodec.rejectUnsupportedSchema(in: defaults.data(forKey: key))
     defaults.set(try ConfigurationCodec.encode(configuration), forKey: key)
     // Flush to cfprefsd synchronously so the agent process, prompted to reload
     // right after this returns, reads the value we just wrote (see load()).
@@ -163,13 +165,18 @@ public final class InMemoryConfigurationStore: @unchecked Sendable, Configuratio
   public func save(_ configuration: SummondConfiguration) throws {
     try ConfigurationValidator.validate(configuration)
     let encoded = try ConfigurationCodec.encode(configuration)
-    lock.withLock {
+    try lock.withLock {
+      try ConfigurationCodec.rejectUnsupportedSchema(in: data)
       data = encoded
     }
   }
 }
 
 enum ConfigurationCodec {
+  private struct SchemaHeader: Decodable {
+    let schemaVersion: Int
+  }
+
   static func encode(_ configuration: SummondConfiguration) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -177,17 +184,24 @@ enum ConfigurationCodec {
   }
 
   static func decode(_ data: Data) -> ConfigurationLoadResult {
+    let schemaVersion: Int
+    do {
+      schemaVersion = try JSONDecoder().decode(SchemaHeader.self, from: data).schemaVersion
+    } catch {
+      return .corrupt(.undecodable(error.localizedDescription))
+    }
+
+    // Check the schema before the v1 payload: a newer schema may remove or
+    // reshape fields that SummondConfiguration currently requires.
+    guard schemaVersion == SummondConfiguration.currentSchemaVersion else {
+      return .corrupt(.unsupportedSchemaVersion(schemaVersion))
+    }
+
     let configuration: SummondConfiguration
     do {
       configuration = try JSONDecoder().decode(SummondConfiguration.self, from: data)
     } catch {
       return .corrupt(.undecodable(error.localizedDescription))
-    }
-
-    // schemaVersion is the durability hook: an unrecognized version is a
-    // configuration written by a newer Summond, reported rather than misparsed.
-    guard configuration.schemaVersion == SummondConfiguration.currentSchemaVersion else {
-      return .corrupt(.unsupportedSchemaVersion(configuration.schemaVersion))
     }
 
     do {
@@ -197,6 +211,18 @@ enum ConfigurationCodec {
     }
 
     return .loaded(configuration)
+  }
+
+  static func rejectUnsupportedSchema(in data: Data?) throws {
+    guard
+      let data,
+      let version = try? JSONDecoder().decode(SchemaHeader.self, from: data).schemaVersion,
+      version != SummondConfiguration.currentSchemaVersion
+    else {
+      return
+    }
+
+    throw ConfigurationCorruption.unsupportedSchemaVersion(version)
   }
 }
 

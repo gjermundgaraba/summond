@@ -14,7 +14,11 @@ struct KeyEventEngineTests {
       [try makeBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")],
       appResolver: resolver
     )
-    return KeyEventEngine(snapshot: compiled.snapshot, runtime: runtime)
+    return KeyEventEngine(
+      snapshot: compiled.snapshot,
+      runtime: runtime,
+      verboseLogging: VerboseLoggingState()
+    )
   }
 
   private func keyDown(_ name: String, autorepeat: Bool) throws -> CGEvent {
@@ -69,5 +73,18 @@ struct KeyEventEngineTests {
 
     #expect(result != nil)  // unmatched events are forwarded untouched
     #expect(runtime.openCount() == 0)
+  }
+
+  @Test("Reload updates shared verbose logging")
+  func reloadUpdatesSharedVerboseLogging() {
+    let verboseLogging = VerboseLoggingState()
+    let engine = KeyEventEngine(
+      runtime: TestAppRuntime(),
+      verboseLogging: verboseLogging
+    )
+
+    engine.replaceSnapshot(.empty, verboseLogging: true)
+
+    #expect(verboseLogging.isEnabled)
   }
 }

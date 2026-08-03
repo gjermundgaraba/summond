@@ -148,7 +148,8 @@ require disabling SIP.
 - `KeyEventEngine` is `@unchecked Sendable`. The event tap runs on a dedicated
   `net.garaba.summond.keytap` thread with its own run loop. Engine state lives
   behind an `OSAllocatedUnfairLock`; the tap callback holds the lock only long
-  enough to copy out the snapshot and verbose-logging flag.
+  enough to copy out the snapshot. Verbose-logging state is shared atomically
+  with the runtime collaborators that emit diagnostics.
 - Engine methods are thread-safe. XPC calls enter on Foundation-managed queues
   and hop to `@MainActor` for the supervisor.
 - `AppOpener` is an actor that deduplicates in-flight opens per bundle ID.
@@ -192,7 +193,8 @@ Top-level fields:
 Each binding stores a stable UUID, a shortcut (`key`, `mods`), and a target
 (`bundleID`, `mode`). The codec distinguishes fresh storage from corrupt data:
 missing data returns `.fresh(.empty)`, while undecodable data, unsupported schema
-versions, and invalid data return `.corrupt(...)`.
+versions, and invalid data return `.corrupt(...)`. Saves refuse to overwrite an
+existing configuration with an unsupported schema version.
 
 ## XPC Boundary
 

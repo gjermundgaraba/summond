@@ -173,7 +173,8 @@ struct AgentConfigurationReloadTests {
     let initialConfiguration = SummondConfiguration(
       bindings: [
         try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")
-      ]
+      ],
+      verboseLogging: true
     )
     let store = MutableLoadedConfigurationStore(configuration: initialConfiguration)
     let resolver = TestAppResolver(appsByBundleID: [
@@ -183,6 +184,7 @@ struct AgentConfigurationReloadTests {
 
     let firstReload = reloader.reload()
     let firstSnapshot = try #require(firstReload.snapshotToInstall)
+    #expect(firstReload.verboseLogging)
 
     store.configuration =
       SummondConfiguration(
@@ -198,6 +200,7 @@ struct AgentConfigurationReloadTests {
     #expect(failedReload.configState == .invalid)
     #expect(failedReload.snapshotToInstall == nil)
     #expect(failedReload.bindingCount == 1)
+    #expect(failedReload.verboseLogging)
     #expect(failedReload.unresolvedBundleIDs.isEmpty)
 
     let preservedShortcut = try BindingCompiler.compileShortcut(

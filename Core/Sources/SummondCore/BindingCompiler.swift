@@ -17,11 +17,11 @@ public struct CompiledShortcut: Sendable, Equatable, Hashable {
 }
 
 public struct CompiledAppBinding: Sendable, Equatable {
-  public let binding: AppBinding
+  public let binding: StoredBinding
   public let shortcut: CompiledShortcut
   public let identity: AppIdentity
 
-  public init(binding: AppBinding, shortcut: CompiledShortcut, identity: AppIdentity) {
+  public init(binding: StoredBinding, shortcut: CompiledShortcut, identity: AppIdentity) {
     self.binding = binding
     self.shortcut = shortcut
     self.identity = identity
@@ -80,7 +80,7 @@ public enum BindingCompiler {
   /// whose bundle ID is not installed. Structurally invalid bindings — an
   /// unknown key/modifier or a duplicate shortcut — throw.
   public static func compile(
-    _ bindings: [AppBinding],
+    _ bindings: [StoredBinding],
     appResolver: any AppResolver
   ) throws(ConfigurationValidationError) -> CompiledBindings {
     var compiledBindings: [CompiledShortcut: CompiledAppBinding] = [:]
@@ -103,8 +103,8 @@ public enum BindingCompiler {
         )
       }
 
-      guard let identity = appResolver.resolve(bundleID: binding.app.bundleID) else {
-        unresolvedBundleIDs.append(binding.app.bundleID)
+      guard let identity = appResolver.resolve(bundleID: binding.target.bundleID) else {
+        unresolvedBundleIDs.append(binding.target.bundleID)
         continue
       }
 

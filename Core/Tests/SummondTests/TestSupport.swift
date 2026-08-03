@@ -7,14 +7,7 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
   private let lock = NSLock()
   private var shouldSuspendNextOpen = false
   private var pendingOpenContinuation: CheckedContinuation<OpenAppResult, Never>?
-  private var resultsByBundleID: [String: OpenAppResult] = [:]
   private var openRequests: [(bundleID: String, mode: AppOpenMode)] = []
-
-  func setResult(_ result: OpenAppResult, for bundleID: String) {
-    lock.withLock {
-      resultsByBundleID[bundleID] = result
-    }
-  }
 
   func suspendNextOpen() {
     lock.withLock {
@@ -38,9 +31,7 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
       }
     }
 
-    return lock.withLock {
-      resultsByBundleID[identity.bundleIdentifier] ?? .launched
-    }
+    return .launched
   }
 
   func completeOpen(with result: OpenAppResult) {
@@ -52,22 +43,14 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
     continuation?.resume(returning: result)
   }
 
-  func waitForPendingOpen() async {
+  func waitForPendingOpen() async -> Bool {
     for _ in 0..<100 {
       if lock.withLock({ pendingOpenContinuation != nil }) {
-        return
+        return true
       }
       await Task.yield()
     }
-  }
-
-  func waitForOpenAttempts(_ expected: Int) async {
-    for _ in 0..<100 {
-      if openCount() == expected {
-        return
-      }
-      await Task.yield()
-    }
+    return false
   }
 
   func openCount() -> Int {
@@ -237,10 +220,10 @@ func makeBinding(
   mods: [String] = [],
   bundleID: String = "com.apple.safari",
   mode: AppOpenMode = .launch
-) throws -> AppBinding {
-  AppBinding(
+) throws -> StoredBinding {
+  StoredBinding(
     shortcut: Shortcut(key: key, mods: mods),
-    app: try AppTarget(bundleID: bundleID, mode: mode)
+    target: try AppTarget(bundleID: bundleID, mode: mode)
   )
 }
 

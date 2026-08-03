@@ -164,6 +164,7 @@ struct SummondModelTests {
       Issue.record("Expected corrupt load state")
       return
     }
+    #expect(model.canResetCorruptConfiguration)
     #expect(
       model.health
         == .degraded(
@@ -175,6 +176,14 @@ struct SummondModelTests {
     #expect(store.savedConfigurations == [.empty])
     #expect(model.configuration == .empty)
     #expect(model.loadState == .loaded)
+  }
+
+  @Test("Newer configuration schemas cannot be reset")
+  func newerSchemaCannotBeReset() {
+    let store = MockConfigurationStore(loadResult: .corrupt(.unsupportedSchemaVersion(2)))
+    let model = makeModel(store: store)
+
+    #expect(!model.canResetCorruptConfiguration)
   }
 
   @Test("Verbose logging uses the same persistence path")

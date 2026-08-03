@@ -1,5 +1,4 @@
 import AppKit
-import ApplicationServices
 import CoreGraphics
 import Foundation
 import OSLog
@@ -42,7 +41,10 @@ protocol MacOSAppRuntimeSystem: Sendable {
 public struct MacOSAppRuntime: AppRuntime {
   private let system: any MacOSAppRuntimeSystem
 
-  public init(logger: Logger = SummondLoggers.opener, verboseLogging: Bool = false) {
+  public init(
+    logger: Logger = SummondLoggers.opener,
+    verboseLogging: VerboseLoggingState
+  ) {
     self.system = LiveMacOSAppRuntimeSystem(logger: logger, verboseLogging: verboseLogging)
   }
 
@@ -160,18 +162,17 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
   private let dockMenuOpener: DockMenuOpener
   private let spaceMover: SpaceMover?
   private let logger: Logger
-  private let verboseLogging: Bool
-  private static let windowObserverTimeoutNanoseconds: UInt64 = 2_500_000_000
-  private static let fallbackPollIntervalNanoseconds: UInt64 = 50_000_000
-  private static let fallbackPollAttemptsAfterTimeout = 10
-  private static let fallbackPollAttemptsWhenUnsupported = 60
-  private static let movedWindowPollAttempts = 20
+  private static let windowPollIntervalNanoseconds: UInt64 = 100_000_000
+  private static let newWindowPollAttempts = 31
+  private static let movedWindowPollAttempts = 11
 
-  init(logger: Logger = SummondLoggers.opener, verboseLogging: Bool = false) {
+  init(
+    logger: Logger = SummondLoggers.opener,
+    verboseLogging: VerboseLoggingState
+  ) {
     self.dockMenuOpener = DockMenuOpener(logger: logger)
     self.spaceMover = SpaceMover(logger: SummondLoggers.spaces, verboseLogging: verboseLogging)
     self.logger = logger
-    self.verboseLogging = verboseLogging
   }
 
   func runningApplication(bundleIdentifier: String) -> RunningApplicationState? {
@@ -299,234 +300,24 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
   }
 
   func waitForWindowOnCurrentSpace(processID: pid_t) async throws -> Bool {
-    if hasWindowOnCurrentSpace(processID: processID) {
-      return true
-    }
-
-    let observer = await MainActor.run {
-      WindowAppearanceObserver(
-        processID: processID,
-        hasWindowOnCurrentSpace: self.hasWindowOnCurrentSpace(processID:),
-        logger: logger,
-        verboseLogging: verboseLogging
-      )
-    }
-    let observation = await observer.wait(timeoutNanoseconds: Self.windowObserverTimeoutNanoseconds)
-    switch observation {
-    case .appeared:
-      return true
-    case .timedOut:
-      if verboseLogging {
-        logger.debug(
-          "[runtime] AX window observation timed out for PID \(processID), falling back to polling"
-        )
-      }
-      return try await pollForWindowOnCurrentSpace(
-        processID: processID,
-        attempts: Self.fallbackPollAttemptsAfterTimeout
-      )
-    case .unsupported:
-      if verboseLogging {
-        logger.debug(
-          "[runtime] AX window observation unsupported for PID \(processID), falling back to polling"
-        )
-      }
-      return try await pollForWindowOnCurrentSpace(
-        processID: processID,
-        attempts: Self.fallbackPollAttemptsWhenUnsupported
-      )
-    }
+    // ponytail: 100 ms polling keeps a 3 s ceiling; restore AX events only if measured latency needs it.
+    try await pollForWindowOnCurrentSpace(
+      processID: processID,
+      attempts: Self.newWindowPollAttempts
+    )
   }
 
   private func pollForWindowOnCurrentSpace(processID: pid_t, attempts: Int) async throws -> Bool {
-    for _ in 0..<attempts {
+    for attempt in 0..<attempts {
       if hasWindowOnCurrentSpace(processID: processID) {
         return true
       }
 
-      try await Task.sleep(nanoseconds: Self.fallbackPollIntervalNanoseconds)
+      if attempt + 1 < attempts {
+        try await Task.sleep(nanoseconds: Self.windowPollIntervalNanoseconds)
+      }
     }
 
     return false
-  }
-}
-
-private enum WindowObservationResult {
-  case appeared
-  case timedOut
-  case unsupported
-}
-
-@MainActor
-private final class WindowAppearanceObserver {
-  private let processID: pid_t
-  private let hasWindowOnCurrentSpace: @Sendable (pid_t) -> Bool
-  private let logger: Logger
-  private let verboseLogging: Bool
-  private var observer: AXObserver?
-  private var applicationElement: AXUIElement?
-  private var continuation: CheckedContinuation<WindowObservationResult, Never>?
-  private var timeoutTask: Task<Void, Never>?
-  private var finished = false
-
-  init(
-    processID: pid_t,
-    hasWindowOnCurrentSpace: @escaping @Sendable (pid_t) -> Bool,
-    logger: Logger,
-    verboseLogging: Bool
-  ) {
-    self.processID = processID
-    self.hasWindowOnCurrentSpace = hasWindowOnCurrentSpace
-    self.logger = logger
-    self.verboseLogging = verboseLogging
-  }
-
-  func wait(timeoutNanoseconds: UInt64) async -> WindowObservationResult {
-    if hasWindowOnCurrentSpace(processID) {
-      return .appeared
-    }
-
-    guard setupObserver() else {
-      return .unsupported
-    }
-
-    if hasWindowOnCurrentSpace(processID) {
-      cleanup()
-      return .appeared
-    }
-
-    return await withCheckedContinuation { continuation in
-      self.continuation = continuation
-      timeoutTask = Task { [weak self] in
-        try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-        await MainActor.run {
-          self?.finish(.timedOut)
-        }
-      }
-    }
-  }
-
-  private func setupObserver() -> Bool {
-    let applicationElement = AXUIElementCreateApplication(processID)
-    var unmanagedObserver: AXObserver?
-    let createResult = AXObserverCreate(
-      processID,
-      windowObserverCallback,
-      &unmanagedObserver
-    )
-    guard createResult == .success, let observer = unmanagedObserver else {
-      if verboseLogging {
-        logger.debug(
-          "[runtime] AXObserverCreate failed for PID \(self.processID): \(createResult.rawValue)"
-        )
-      }
-      return false
-    }
-
-    self.observer = observer
-    self.applicationElement = applicationElement
-    CFRunLoopAddSource(
-      CFRunLoopGetMain(),
-      AXObserverGetRunLoopSource(observer),
-      .commonModes
-    )
-
-    var registeredCount = 0
-    for notification in Self.notifications {
-      let result = AXObserverAddNotification(
-        observer,
-        applicationElement,
-        notification as CFString,
-        Unmanaged.passUnretained(self).toOpaque()
-      )
-      switch result {
-      case .success, .notificationAlreadyRegistered:
-        registeredCount += 1
-      case .notificationUnsupported:
-        if verboseLogging {
-          logger.debug(
-            "[runtime] AX notification unsupported for PID \(self.processID): \(notification)"
-          )
-        }
-      default:
-        if verboseLogging {
-          logger.debug(
-            "[runtime] AXObserverAddNotification failed for PID \(self.processID): \(notification) (\(result.rawValue))"
-          )
-        }
-      }
-    }
-
-    guard registeredCount > 0 else {
-      cleanup()
-      return false
-    }
-
-    return true
-  }
-
-  fileprivate func handleNotification(_ notification: String) {
-    if verboseLogging {
-      logger.debug("[runtime] received AX notification for PID \(self.processID): \(notification)")
-    }
-
-    if hasWindowOnCurrentSpace(processID) {
-      finish(.appeared)
-    }
-  }
-
-  private func finish(_ result: WindowObservationResult) {
-    guard !finished else {
-      return
-    }
-    finished = true
-
-    timeoutTask?.cancel()
-    timeoutTask = nil
-
-    let continuation = continuation
-    self.continuation = nil
-    cleanup()
-    continuation?.resume(returning: result)
-  }
-
-  private func cleanup() {
-    if let observer {
-      CFRunLoopRemoveSource(
-        CFRunLoopGetMain(),
-        AXObserverGetRunLoopSource(observer),
-        .commonModes
-      )
-    }
-
-    applicationElement = nil
-    observer = nil
-  }
-
-  private static let notifications: [String] = [
-    kAXWindowCreatedNotification,
-    kAXMainWindowChangedNotification,
-    kAXFocusedWindowChangedNotification,
-  ]
-}
-
-private func windowObserverCallback(
-  observer: AXObserver,
-  element: AXUIElement,
-  notification: CFString,
-  refcon: UnsafeMutableRawPointer?
-) {
-  _ = observer
-  _ = element
-
-  guard let refcon else {
-    return
-  }
-
-  let notificationName = notification as String
-  let windowObserver = Unmanaged<WindowAppearanceObserver>.fromOpaque(refcon)
-    .takeUnretainedValue()
-  Task { @MainActor in
-    windowObserver.handleNotification(notificationName)
   }
 }

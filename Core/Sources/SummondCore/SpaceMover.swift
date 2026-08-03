@@ -49,14 +49,14 @@ struct SpaceMover: Sendable {
   private static let allSpacesSelector: Int32 = 0x7
 
   private let logger: Logger
-  private let verboseLogging: Bool
+  private let verboseLogging: VerboseLoggingState
   private let mainConnectionID: MainConnectionID
   private let copyActiveDisplay: CopyActiveDisplay
   private let managedDisplayCurrentSpace: ManagedDisplayCurrentSpace
   private let copySpacesForWindows: CopySpacesForWindows
   private let bridgedOperation: BridgedOperation
 
-  init?(logger: Logger, verboseLogging: Bool = false) {
+  init?(logger: Logger, verboseLogging: VerboseLoggingState) {
     guard let handle = dlopen(Self.skylightPath, RTLD_LAZY) else {
       logger.warning("[spaces] failed to load SkyLight framework")
       return nil
@@ -167,7 +167,7 @@ struct SpaceMover: Sendable {
 
     _ = bridgedOperation.perform(operation)
     bridgedOperation.release(operation, sel_registerName("release"))
-    if verboseLogging {
+    if verboseLogging.isEnabled {
       logger.debug("[spaces] requested bridged move of \(windowIDs) to space \(space)")
     }
     return true

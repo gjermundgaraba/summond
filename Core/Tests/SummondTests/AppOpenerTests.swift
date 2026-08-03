@@ -20,41 +20,38 @@ struct AppOpenerTests {
   func openRequestsAreDedupedByBundleID() async throws {
     let runtime = TestAppRuntime()
     runtime.suspendNextOpen()
-    let opener = AppOpener(runtime: runtime)
+    let opener = AppOpener(runtime: runtime, verboseLogging: VerboseLoggingState())
     let first = try makeCompiledBinding(bundleID: "com.apple.safari", mode: .launch)
     let second = try makeCompiledBinding(key: "f6", bundleID: "com.apple.safari", mode: .launch)
 
-    await opener.open(first)
+    let firstOpen = Task { await opener.open(first) }
+    try #require(await runtime.waitForPendingOpen())
     await opener.open(second)
-    await runtime.waitForOpenAttempts(1)
-    await runtime.waitForPendingOpen()
 
     #expect(runtime.openCount() == 1)
 
     runtime.completeOpen(with: .launched)
-    await opener.waitForIdle()
+    await firstOpen.value
 
-    runtime.suspendNextOpen()
     await opener.open(second)
-    await runtime.waitForOpenAttempts(2)
+    #expect(runtime.openCount() == 2)
   }
 
   @Test("Failed opens clear in-flight bundle IDs")
   func failedOpensClearInFlightBundleIDs() async throws {
     let runtime = TestAppRuntime()
     runtime.suspendNextOpen()
-    let opener = AppOpener(runtime: runtime)
+    let opener = AppOpener(runtime: runtime, verboseLogging: VerboseLoggingState())
     let binding = try makeCompiledBinding(bundleID: "com.apple.safari", mode: .launch)
 
-    await opener.open(binding)
-    await runtime.waitForPendingOpen()
+    let firstOpen = Task { await opener.open(binding) }
+    try #require(await runtime.waitForPendingOpen())
 
     runtime.completeOpen(with: .failed(reason: "boom"))
-    await opener.waitForIdle()
+    await firstOpen.value
 
-    runtime.suspendNextOpen()
     await opener.open(binding)
-    await runtime.waitForOpenAttempts(2)
+    #expect(runtime.openCount() == 2)
   }
 }
 

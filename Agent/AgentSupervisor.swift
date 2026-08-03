@@ -37,10 +37,6 @@ final class AgentSupervisor {
     )
   }
 
-  func bootstrap() {
-    _ = reloadConfiguration()
-  }
-
   func reloadConfiguration() -> AgentStatus {
     let result = reloader.reload()
     if let snapshot = result.snapshotToInstall {
@@ -136,16 +132,11 @@ final class AgentSupervisor {
 
         attemptEngineStart()
         if engine.status.isTapInstalled {
-          stopEngineStartupPolling()
+          engineStartupTask = nil
           return
         }
       }
     }
-  }
-
-  private func stopEngineStartupPolling() {
-    engineStartupTask?.cancel()
-    engineStartupTask = nil
   }
 
   private func tapFailureReason(

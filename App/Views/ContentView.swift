@@ -110,7 +110,7 @@ struct ContentView: View {
         color: .orange,
         title: "Configuration Could Not Be Loaded",
         message: details ?? "The saved configuration could not be read.",
-        actionTitle: "Reset",
+        actionTitle: model.canResetCorruptConfiguration ? "Reset" : nil,
         actionIdentifier: "configuration.resetButton",
         action: { confirmsConfigurationReset = true }
       )

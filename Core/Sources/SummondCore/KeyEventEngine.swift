@@ -48,7 +48,6 @@ public struct KeyEventEngineStatus: Equatable, Sendable {
 public final class KeyEventEngine: @unchecked Sendable {
   private struct State {
     var snapshot: BindingSnapshot
-    var verboseLogging: Bool
     var eventTap: CFMachPort?
     var isStarting = false
     var wasDisabledByTimeout = false
@@ -58,15 +57,16 @@ public final class KeyEventEngine: @unchecked Sendable {
   private let state: OSAllocatedUnfairLock<State>
   private let appOpener: AppOpener
   private let logger: Logger
+  private let verboseLogging: VerboseLoggingState
 
   public init(
     snapshot: BindingSnapshot = .empty,
     runtime: any AppRuntime,
     logger: Logger = SummondLoggers.engine,
-    verboseLogging: Bool = false
+    verboseLogging: VerboseLoggingState
   ) {
     self.state = OSAllocatedUnfairLock(
-      uncheckedState: State(snapshot: snapshot, verboseLogging: verboseLogging)
+      uncheckedState: State(snapshot: snapshot)
     )
     self.appOpener = AppOpener(
       runtime: runtime,
@@ -74,6 +74,7 @@ public final class KeyEventEngine: @unchecked Sendable {
       verboseLogging: verboseLogging
     )
     self.logger = logger
+    self.verboseLogging = verboseLogging
   }
 
   public var status: KeyEventEngineStatus {
@@ -145,8 +146,8 @@ public final class KeyEventEngine: @unchecked Sendable {
   ) {
     state.withLockUnchecked { state in
       state.snapshot = snapshot
-      state.verboseLogging = verboseLogging
     }
+    self.verboseLogging.setEnabled(verboseLogging)
     if verboseLogging {
       logger.debug("installed \(snapshot.count, privacy: .public) active binding(s)")
     }
@@ -219,7 +220,7 @@ public final class KeyEventEngine: @unchecked Sendable {
 
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
-        if verboseLoggingEnabled {
+        if verboseLogging.isEnabled {
           logger.debug("re-enabled event tap after system disable")
         }
       }
@@ -236,9 +237,9 @@ public final class KeyEventEngine: @unchecked Sendable {
     // Copy the snapshot reference out under the lock, then match and dispatch
     // without holding it. BindingSnapshot is a value type backed by a
     // copy-on-write dictionary, so this is an O(1) retain, not a deep copy.
-    let (snapshot, verboseLogging) = state.withLockUnchecked { ($0.snapshot, $0.verboseLogging) }
+    let snapshot = state.withLockUnchecked { $0.snapshot }
 
-    if verboseLogging {
+    if verboseLogging.isEnabled {
       logger.debug(
         "key event: keyCode=\(keyCode, privacy: .private) flags=\(flags.rawValue, privacy: .private)"
       )
@@ -255,17 +256,13 @@ public final class KeyEventEngine: @unchecked Sendable {
         "matched: \(binding.binding.shortcut.description, privacy: .private) -> \(binding.identity.bundleIdentifier, privacy: .private)"
       )
       let appOpener = appOpener
-      Task {
+      Task(priority: .userInitiated) {
         await appOpener.open(binding)
       }
       return nil
     }
 
     return Unmanaged.passUnretained(event)
-  }
-
-  private var verboseLoggingEnabled: Bool {
-    state.withLockUnchecked { $0.verboseLogging }
   }
 }
 

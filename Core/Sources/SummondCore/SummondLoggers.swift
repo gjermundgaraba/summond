@@ -1,4 +1,21 @@
 import OSLog
+import Synchronization
+
+public final class VerboseLoggingState: Sendable {
+  private let enabled: Atomic<Bool>
+
+  public init(isEnabled: Bool = false) {
+    self.enabled = Atomic(isEnabled)
+  }
+
+  public var isEnabled: Bool {
+    enabled.load(ordering: .relaxed)
+  }
+
+  func setEnabled(_ isEnabled: Bool) {
+    enabled.store(isEnabled, ordering: .relaxed)
+  }
+}
 
 public enum SummondLoggers {
   public static let subsystem = "net.garaba.summond"

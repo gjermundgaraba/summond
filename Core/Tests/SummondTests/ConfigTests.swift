@@ -82,15 +82,39 @@ struct ConfigurationStoreTests {
     }
   }
 
-  @Test("Unrecognized schema version loads as corrupt")
+  @Test("Unrecognized schema is detected before decoding its payload")
   func unrecognizedSchemaVersionLoadsCorrupt() throws {
-    let data = Data(
-      """
-      { "schemaVersion": 2, "bindings": [], "verboseLogging": false }
-      """.utf8)
+    let data = Data(#"{ "schemaVersion": 2 }"#.utf8)
     let store = InMemoryConfigurationStore(data: data)
 
     #expect(store.load() == .corrupt(.unsupportedSchemaVersion(2)))
+    #expect(throws: ConfigurationCorruption.unsupportedSchemaVersion(2)) {
+      try store.save(.empty)
+    }
+    #expect(store.load() == .corrupt(.unsupportedSchemaVersion(2)))
+  }
+
+  @Test("A stale user-defaults writer cannot overwrite an unsupported schema")
+  func staleUserDefaultsWriterCannotOverwriteUnsupportedSchema() throws {
+    let suiteName = "net.garaba.summond.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer {
+      defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let store = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
+    let newerConfiguration = Data(#"{ "schemaVersion": 2 }"#.utf8)
+    defaults.set(newerConfiguration, forKey: UserDefaultsConfigurationStore.defaultKey)
+    defaults.synchronize()
+
+    #expect(throws: ConfigurationCorruption.unsupportedSchemaVersion(2)) {
+      try store.save(.empty)
+    }
+    defaults.synchronize()
+    #expect(
+      defaults.data(forKey: UserDefaultsConfigurationStore.defaultKey) == newerConfiguration
+    )
   }
 
   @Test("Save rejects invalid configurations")

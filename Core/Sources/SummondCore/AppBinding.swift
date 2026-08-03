@@ -84,13 +84,3 @@ public struct AppTarget: Codable, Sendable, Equatable {
     )
   }
 }
-
-public struct AppBinding: Sendable, Equatable {
-  public var shortcut: Shortcut
-  public var app: AppTarget
-
-  public init(shortcut: Shortcut, app: AppTarget) {
-    self.shortcut = shortcut
-    self.app = app
-  }
-}

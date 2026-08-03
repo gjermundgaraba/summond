@@ -29,28 +29,18 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   private let store: any ConfigurationStore
   private let appResolver: any AppResolver
   private let lock = NSLock()
-  private var currentBindingCount: Int
-  private var currentVerboseLogging: Bool
-  private var currentConfigState: AgentConfigurationState
+  private var currentBindingCount = 0
+  private var currentConfigState: AgentConfigurationState = .fresh
+  private var currentVerboseLogging = false
   private var currentLastReloadError: String?
-  private var currentUnresolvedBundleIDs: [String]
+  private var currentUnresolvedBundleIDs: [String] = []
 
   public init(
     store: any ConfigurationStore,
-    appResolver: any AppResolver,
-    initialBindingCount: Int = 0,
-    initialVerboseLogging: Bool = false,
-    initialConfigState: AgentConfigurationState = .fresh,
-    initialLastReloadError: String? = nil,
-    initialUnresolvedBundleIDs: [String] = []
+    appResolver: any AppResolver
   ) {
     self.store = store
     self.appResolver = appResolver
-    self.currentBindingCount = initialBindingCount
-    self.currentVerboseLogging = initialVerboseLogging
-    self.currentConfigState = initialConfigState
-    self.currentLastReloadError = initialLastReloadError
-    self.currentUnresolvedBundleIDs = initialUnresolvedBundleIDs
   }
 
   public func reload() -> AgentConfigurationReloadResult {
@@ -67,7 +57,6 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   public func statusFields() -> (
     configState: AgentConfigurationState,
     bindingCount: Int,
-    verboseLogging: Bool,
     lastReloadError: String?,
     unresolvedBundleIDs: [String]
   ) {
@@ -75,7 +64,6 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
       (
         currentConfigState,
         currentBindingCount,
-        currentVerboseLogging,
         currentLastReloadError,
         currentUnresolvedBundleIDs
       )
@@ -88,14 +76,14 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   ) -> AgentConfigurationReloadResult {
     do {
       let compiled = try BindingCompiler.compile(
-        configuration.bindings.map { AppBinding(shortcut: $0.shortcut, app: $0.target) },
+        configuration.bindings,
         appResolver: appResolver
       )
       let unresolvedBundleIDs = compiled.unresolvedBundleIDs
       lock.withLock {
         currentBindingCount = compiled.snapshot.count
-        currentVerboseLogging = configuration.verboseLogging
         currentConfigState = configState
+        currentVerboseLogging = configuration.verboseLogging
         currentLastReloadError = nil
         currentUnresolvedBundleIDs = unresolvedBundleIDs
       }

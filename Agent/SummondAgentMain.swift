@@ -27,10 +27,18 @@ struct SummondAgentMain {
     // the supervisor consults the throttle live, so a tripped breaker defers the
     // tap and then recovers on its own once the launch burst ages out.
     let throttle = RestartThrottle()
-    let launchHistoryStore = LaunchHistoryStore()
+    // This is private operational state in the agent's own defaults domain, not
+    // the shared preferences suite read by the app.
+    let launchHistoryDefaults = UserDefaults.standard
+    let launchHistoryKey = "agent.launchHistory.v1"
     let now = Date().timeIntervalSince1970
-    let launchHistory = throttle.record(launchHistoryStore.load(), now: now)
-    launchHistoryStore.save(launchHistory)
+    let launchHistory = throttle.record(
+      launchHistoryDefaults.array(forKey: launchHistoryKey) as? [Double] ?? [],
+      now: now
+    )
+    launchHistoryDefaults.set(launchHistory, forKey: launchHistoryKey)
+    // This must reach disk before a crashing agent can be relaunched.
+    launchHistoryDefaults.synchronize()
     if !throttle.shouldInstallTap(launches: launchHistory, now: now) {
       SummondLoggers.agent.fault(
         """
@@ -45,17 +53,19 @@ struct SummondAgentMain {
       exit(1)
     }
 
+    let verboseLogging = VerboseLoggingState()
+    let runtime = MacOSAppRuntime(verboseLogging: verboseLogging)
     let supervisor = AgentSupervisor(
       store: store,
       appResolver: InstalledAppResolver(),
-      engine: KeyEventEngine(runtime: MacOSAppRuntime()),
+      engine: KeyEventEngine(runtime: runtime, verboseLogging: verboseLogging),
       restartThrottle: throttle,
       launchHistory: launchHistory
     )
     let listener = AgentXPCListener(supervisor: supervisor)
     listener.start()
 
-    supervisor.bootstrap()
+    _ = supervisor.reloadConfiguration()
     RunLoop.main.run()
   }
 }
