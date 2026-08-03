@@ -176,21 +176,24 @@ struct DockMenuOpener: Sendable {
       return false
     }
 
-    return isCommandNMenuItem(element)
+    return Self.matchesNewWindowItem(
+      title: stringAttribute(kAXTitleAttribute as CFString, of: element),
+      command: stringAttribute(kAXMenuItemCmdCharAttribute as CFString, of: element),
+      modifiers: (attribute(kAXMenuItemCmdModifiersAttribute as CFString, of: element) as NSNumber?)?
+        .uint32Value
+    )
   }
 
-  private func isCommandNMenuItem(_ element: AXUIElement) -> Bool {
-    guard
-      let command = stringAttribute(kAXMenuItemCmdCharAttribute as CFString, of: element),
-      command.caseInsensitiveCompare("n") == .orderedSame
-    else {
-      return false
+  static func matchesNewWindowItem(
+    title: String?, command: String?, modifiers: UInt32?
+  ) -> Bool {
+    if command?.caseInsensitiveCompare("n") == .orderedSame,
+      (modifiers ?? Self.noCommandModifier) == Self.commandOnlyModifier
+    {
+      return true
     }
 
-    let modifiers: UInt32 =
-      (attribute(kAXMenuItemCmdModifiersAttribute as CFString, of: element) as NSNumber?)?
-      .uint32Value ?? Self.noCommandModifier
-    return modifiers == Self.commandOnlyModifier
+    return title == Self.newWindowTitle
   }
 
   private func children(of element: AXUIElement) -> [AXUIElement]? {
@@ -215,6 +218,7 @@ struct DockMenuOpener: Sendable {
     return value as? T
   }
 
+  private static let newWindowTitle = "New Window"
   private static let commandOnlyModifier: UInt32 = 0
   private static let noCommandModifier: UInt32 = 1 << 3
 

@@ -3,6 +3,17 @@ import Testing
 
 @testable import SummondCore
 
+@Suite("Dock menu opener")
+struct DockMenuOpenerTests {
+  @Test("Matches a title-only New Window item")
+  func matchesTitleOnlyNewWindowItem() {
+    #expect(
+      DockMenuOpener.matchesNewWindowItem(
+        title: "New Window", command: nil, modifiers: nil
+      ))
+  }
+}
+
 @Suite("App opener")
 struct AppOpenerTests {
   @Test("Open requests are deduped by bundle ID while in flight")
