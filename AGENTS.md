@@ -9,3 +9,7 @@ concurrency, failure semantics, bundle layout, and signing/notarization notes.
 
 `make help` lists every build, test, lint, and packaging target. The CI gate is
 `make lint`, `make core-test`, and `make app-test`.
+
+Use `make app-test`, not raw `xcodebuild test`, so test builds cannot replace
+the production service registration. Use `make install-local` for local installs
+and reinstalls; do not copy builds into `/Applications` manually.

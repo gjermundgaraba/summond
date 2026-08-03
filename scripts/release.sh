@@ -246,6 +246,7 @@ build_release_app() {
     -clonedSourcePackagesDirPath "$swiftpm_cache/source-packages" \
     CODE_SIGNING_ALLOWED=NO \
     CLANG_MODULE_CACHE_PATH="$module_cache" \
+    SUMMOND_APP_BUNDLE_IDENTIFIER=net.garaba.summond.build-host \
     "$@" \
     build
 }
@@ -271,6 +272,7 @@ stage_app() {
   ZIP_PATH="$OUTPUT_DIR/Summond.zip"
   rm -rf "$APP_PATH" "$ZIP_PATH"
   ditto "$built_app" "$APP_PATH"
+  plutil -replace CFBundleIdentifier -string net.garaba.summond "$APP_PATH/Contents/Info.plist"
 }
 
 apply_launch_agent_spawn_constraint() {
@@ -402,6 +404,7 @@ main() {
   require_tool codesign
   require_tool spctl
   require_tool ditto
+  require_tool plutil
   require_tool security
 
   if [[ "$LOCAL_MODE" -eq 1 ]]; then

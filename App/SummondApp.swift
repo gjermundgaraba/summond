@@ -33,6 +33,17 @@ struct SummondApp: App {
 
     let model = SummondModel(storage: storage)
     _model = State(initialValue: model)
+    // Unit tests host this executable; never let that host mutate live services.
+    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+      return
+    }
+    if CommandLine.arguments.contains("--restart-agent") {
+      Task { @MainActor in
+        await model.restartService()
+        NSApplication.shared.terminate(nil)
+      }
+      return
+    }
     Task { @MainActor in
       await model.start()
     }

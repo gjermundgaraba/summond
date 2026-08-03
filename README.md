@@ -210,14 +210,17 @@ make lint
 Create local release artifacts:
 
 ```bash
-SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" make release-local
+TEAM_ID=TEAMID \
+SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" \
+make release-local
 ```
 
 `make release-build` is an alias for `make release-local`; it creates a signed
 Release app and zip without notarization for local validation. The artifacts are
-written to `dist/release/Summond.app` and `dist/release/Summond.zip`. To install
-the local build, drag `dist/release/Summond.app` to `/Applications`, then follow
-the service and permission steps under [Install](#install).
+written to `dist/release/Summond.app` and `dist/release/Summond.zip`. Use
+`make install-local` to rebuild, verify, install, and relaunch using the identity
+and team of an existing `/Applications/Summond.app`. For a first install, pass
+`SIGNING_IDENTITY` and `TEAM_ID` as above.
 
 Create Developer ID artifacts and submit them for notarization:
 

@@ -1,4 +1,4 @@
-.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon install-local release-local release-build release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
@@ -24,6 +24,7 @@ help:
 		'  make lint           Run swift-format lint' \
 		'  make lint-fix       Apply swift-format formatting' \
 		'  make icon           Regenerate Resources/AppIcon.icns from the vector generator' \
+		'  make install-local  Build, verify, and install a signed local release' \
 		'  make release-local  Create local signed Release app/zip without notarization' \
 		'  make release-build  Alias for release-local' \
 		'  make release        Create Developer ID signed and notarized app/zip'
@@ -46,7 +47,7 @@ core-test:
 	swift test --skip-build --package-path Core
 
 app-test: project
-	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)'
+	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)' SUMMOND_APP_BUNDLE_IDENTIFIER=net.garaba.summond.test-host
 
 # XCUITest UI tests drive a real GUI app, so they run only inside the Tart VM
 # (via test-tart). Kept in a separate scheme so host `make test`/`app-test`
@@ -75,6 +76,9 @@ lint-fix:
 # every iconset size offscreen and runs iconutil, writing Resources/AppIcon.icns.
 icon:
 	swift $(CURDIR)/Resources/generate-appicon.swift $(CURDIR)/Resources/AppIcon.icns
+
+install-local:
+	scripts/install-local.sh
 
 release-local:
 	scripts/release.sh --local

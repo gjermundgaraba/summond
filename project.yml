@@ -41,7 +41,8 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond
+        PRODUCT_BUNDLE_IDENTIFIER: $(SUMMOND_APP_BUNDLE_IDENTIFIER)
+        SUMMOND_APP_BUNDLE_IDENTIFIER: net.garaba.summond
         INFOPLIST_FILE: App/Info.plist
     postBuildScripts:
       - name: Embed Agent and Login Item
