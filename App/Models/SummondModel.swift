@@ -7,11 +7,6 @@ import SummondCore
 @MainActor
 @Observable
 final class SummondModel {
-  enum ConfigurationStorage {
-    case available(any ConfigurationStore)
-    case unavailable(String)
-  }
-
   enum LoadState: Equatable {
     case fresh
     case loaded
@@ -19,7 +14,7 @@ final class SummondModel {
     case unavailable(String)
   }
 
-  private let storage: ConfigurationStorage
+  private let storage: any ConfigurationStore
   private let agentClient: any AgentClientProtocol
   private let agentService: any LoginItemServiceManaging
   private let statusItemService: any LoginItemServiceManaging
@@ -47,6 +42,7 @@ final class SummondModel {
   private(set) var configurationError: String?
   private(set) var reloadError: String?
   private(set) var serviceError: String?
+  private(set) var permissionError: String?
   private(set) var statusItemError: String?
   private(set) var uninstallPreparationError: String?
 
@@ -54,7 +50,7 @@ final class SummondModel {
   private var agentRequestSequence = 0
 
   init(
-    storage: ConfigurationStorage,
+    storage: any ConfigurationStore,
     agentClient: any AgentClientProtocol = AgentClient(),
     agentService: any LoginItemServiceManaging = LoginItemService(
       agentPlistName: SummondBundleIdentifiers.agentPlistName
@@ -63,7 +59,7 @@ final class SummondModel {
       loginItemIdentifier: SummondBundleIdentifiers.statusItem
     ),
     appCatalog: (any AppDisplayResolving)? = nil,
-    savedDataRemover: any SavedDataRemoving = UserDefaultsSavedDataRemover(),
+    savedDataRemover: any SavedDataRemoving = LocalSavedDataRemover(),
     repairSleep: @escaping @Sendable (Duration) async -> Void = {
       try? await Task.sleep(for: $0)
     },
@@ -84,22 +80,20 @@ final class SummondModel {
     self.serviceStatus = agentService.status
     self.statusItemStatus = statusItemService.status
 
-    switch storage {
-    case .unavailable(let message):
-      self.configuration = .empty
-      self.loadState = .unavailable(message)
-    case .available(let store):
-      switch store.load() {
-      case .fresh(let configuration):
-        self.configuration = configuration
-        self.loadState = .fresh
-      case .loaded(let configuration):
+    do {
+      if let configuration = try storage.load() {
         self.configuration = configuration
         self.loadState = .loaded
-      case .corrupt(let corruption):
+      } else {
         self.configuration = .empty
-        self.loadState = .corrupt(corruption)
+        self.loadState = .fresh
       }
+    } catch let corruption as ConfigurationCorruption {
+      self.configuration = .empty
+      self.loadState = .corrupt(corruption)
+    } catch {
+      self.configuration = .empty
+      self.loadState = .unavailable(error.localizedDescription)
     }
   }
 
@@ -107,11 +101,11 @@ final class SummondModel {
     if case .unavailable(let message) = loadState {
       return .degraded(.configurationUnavailable(details: message))
     }
-    if let configurationError {
-      return .degraded(.configurationUnavailable(details: configurationError))
-    }
     if case .corrupt(let corruption) = loadState {
       return .degraded(.configurationCorrupt(details: corruption.localizedDescription))
+    }
+    if let configurationError {
+      return .degraded(.configurationUnavailable(details: configurationError))
     }
     if let reloadError {
       return .degraded(.reloadFailed(details: reloadError))
@@ -125,13 +119,9 @@ final class SummondModel {
     statusItemStatus == .enabled || statusItemStatus == .requiresApproval
   }
 
-  var canResetCorruptConfiguration: Bool {
-    switch loadState {
-    case .corrupt(.undecodable), .corrupt(.invalid):
-      true
-    default:
-      false
-    }
+  var canRecoverCorruptConfiguration: Bool {
+    if case .corrupt = loadState { return true }
+    return false
   }
 
   func displayInfo(for bundleID: String) -> AppDisplayInfo {
@@ -266,21 +256,43 @@ final class SummondModel {
   }
 
   @discardableResult
-  func resetCorruptConfiguration() async -> ConfigurationMutationResult {
-    await persist(.empty)
+  func recoverCorruptConfiguration() async -> ConfigurationMutationResult {
+    guard canRecoverCorruptConfiguration else {
+      return .failed("The configuration does not need to be recovered.")
+    }
+    guard !isSaving else {
+      return .failed("Another change is still being saved.")
+    }
+    isSaving = true
+    defer { isSaving = false }
+
+    do {
+      try storage.replace(with: configuration)
+    } catch {
+      configurationError = error.localizedDescription
+      return .failed(error.localizedDescription)
+    }
+    return await acceptPersistedConfiguration(configuration)
   }
 
   func refresh() async {
     let sequence = beginAgentRequest()
     refreshRegistrationStatuses()
+    let shouldReload = retryUnavailableConfigurationLoad() || reloadError != nil
 
     do {
-      let status = try await agentClient.status()
+      let status =
+        if shouldReload {
+          try await agentClient.reloadConfiguration()
+        } else {
+          try await agentClient.status()
+        }
       guard isCurrentAgentRequest(sequence) else {
         return
       }
       agentStatus = status
       reloadError = nil
+      permissionError = nil
     } catch {
       // A task tied to a disappearing view is routinely cancelled. Its final
       // XPC error must not overwrite the last verified status.
@@ -288,6 +300,9 @@ final class SummondModel {
         return
       }
       agentStatus = nil
+      if shouldReload {
+        reloadError = error.localizedDescription
+      }
     }
   }
 
@@ -304,6 +319,7 @@ final class SummondModel {
       guard isCurrentAgentRequest(sequence) else { return }
       agentStatus = status
       reloadError = nil
+      permissionError = nil
     } catch {
       guard isCurrentAgentRequest(sequence) else { return }
       reloadError = error.localizedDescription
@@ -455,17 +471,23 @@ final class SummondModel {
     terminateStatusItem()
 
     if deleteSavedData {
-      savedDataRemover.removeAllSavedData()
+      do {
+        try savedDataRemover.removeAllSavedData()
+      } catch {
+        uninstallPreparationError =
+          "Saved shortcuts and settings could not be deleted: \(error.localizedDescription)"
+        return false
+      }
     }
     return true
   }
 
-  func requestAccessibilitySetup() {
-    agentClient.requestAccessibilityPrompt()
+  func requestAccessibilitySetup() async {
+    await requestPermissionPrompt(agentClient.requestAccessibilityPrompt)
   }
 
-  func requestInputMonitoringSetup() {
-    agentClient.requestInputMonitoringPrompt()
+  func requestInputMonitoringSetup() async {
+    await requestPermissionPrompt(agentClient.requestInputMonitoringPrompt)
   }
 
   func openLoginItemsSettings() {
@@ -484,25 +506,65 @@ final class SummondModel {
     )
   }
 
+  private func requestPermissionPrompt(_ request: () async throws -> Void) async {
+    do {
+      try await request()
+      permissionError = nil
+    } catch {
+      permissionError = error.localizedDescription
+    }
+  }
+
+  private func retryUnavailableConfigurationLoad() -> Bool {
+    guard case .unavailable = loadState else {
+      return false
+    }
+
+    do {
+      if let configuration = try storage.load() {
+        self.configuration = configuration
+        loadState = .loaded
+      } else {
+        configuration = .empty
+        loadState = .fresh
+      }
+      configurationError = nil
+      return true
+    } catch let corruption as ConfigurationCorruption {
+      configuration = .empty
+      loadState = .corrupt(corruption)
+    } catch {
+      loadState = .unavailable(error.localizedDescription)
+    }
+    return false
+  }
+
   private func persist(_ next: SummondConfiguration) async -> ConfigurationMutationResult {
+    if case .unavailable(let message) = loadState {
+      return .failed(message)
+    }
     guard !isSaving else {
       return .failed("Another change is still being saved.")
     }
     isSaving = true
     defer { isSaving = false }
 
-    switch storage {
-    case .unavailable(let message):
-      return .failed(message)
-    case .available(let store):
-      do {
-        try store.save(next)
-      } catch {
-        configurationError = error.localizedDescription
-        return .failed(error.localizedDescription)
+    do {
+      try storage.save(next)
+    } catch {
+      if let corruption = error as? ConfigurationCorruption {
+        loadState = .corrupt(corruption)
       }
+      configurationError = error.localizedDescription
+      return .failed(error.localizedDescription)
     }
 
+    return await acceptPersistedConfiguration(next)
+  }
+
+  private func acceptPersistedConfiguration(
+    _ next: SummondConfiguration
+  ) async -> ConfigurationMutationResult {
     configuration = next
     loadState = .loaded
     configurationError = nil
@@ -513,6 +575,7 @@ final class SummondModel {
       if isCurrentAgentRequest(sequence) {
         agentStatus = status
         reloadError = nil
+        permissionError = nil
       }
       return .saved
     } catch {

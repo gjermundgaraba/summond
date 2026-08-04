@@ -5,7 +5,7 @@ import XCTest
 /// `SummondApp.init()` to a Debug-only harness (`App/Support/UITestSupport.swift`)
 /// that injects fakes for XPC, SMAppService, the app catalog, and the config
 /// store — so these tests exercise the real SwiftUI views, app model, and the
-/// configuration persistence path (including a real cross-launch `UserDefaults`
+/// configuration persistence path (including a real cross-launch file-store
 /// round-trip) without registering system services or depending on the host's
 /// installed apps.
 ///
@@ -168,28 +168,29 @@ final class SummondUITests: XCTestCase {
 
   // MARK: - Corrupt config recovery
 
-  /// A corrupt stored configuration surfaces the recovery banner; resetting it
-  /// returns the app to a clean empty state.
-  func testCorruptConfigurationResets() {
+  /// A corrupt stored configuration surfaces the recovery banner; replacing it
+  /// with the shown empty configuration restores the normal empty state.
+  func testCorruptConfigurationRecovers() {
     let app = launch(seed: "corrupt")
-    // The reset button is shown only for a corrupt configuration banner.
-    let reset = app.buttons["configuration.resetButton"]
-    XCTAssertTrue(reset.waitForExistence(timeout: launchTimeout), "Corrupt-config banner not shown")
+    // The recovery button is shown only for a corrupt configuration banner.
+    let recover = app.buttons["configuration.recoverButton"]
+    XCTAssertTrue(
+      recover.waitForExistence(timeout: launchTimeout), "Corrupt-config banner not shown")
     XCTAssertTrue(
       staticTextContaining(app, "Configuration Could Not Be Loaded").waitForExistence(timeout: 5),
       "Corrupt-config banner title not shown")
 
-    reset.click()
+    recover.click()
 
     // The confirmation renders as a sheet; scope to it so the query doesn't match
     // the Touch Bar's mirrored copy of the button.
-    let confirm = app.sheets.buttons["Reset to Empty Configuration"].firstMatch
-    XCTAssertTrue(confirm.waitForExistence(timeout: uiTimeout), "Reset confirmation not shown")
+    let confirm = app.sheets.buttons["Replace Unreadable File"].firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: uiTimeout), "Recovery confirmation not shown")
     confirm.click()
 
     XCTAssertTrue(
       app.staticTexts["No Shortcuts"].waitForExistence(timeout: uiTimeout),
-      "App did not return to empty state after reset")
+      "App did not return to empty state after recovery")
   }
 
   // MARK: - Settings
@@ -296,6 +297,7 @@ final class SummondUITests: XCTestCase {
     action.click()
 
     let settings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+    addTeardownBlock { settings.terminate() }
     XCTAssertTrue(
       settings.wait(for: .runningForeground, timeout: launchTimeout),
       "System Settings did not become foreground")
@@ -345,17 +347,19 @@ final class SummondUITests: XCTestCase {
 
   // MARK: - Real-store persistence across relaunch
 
-  /// Backs the app with the *shipped* `UserDefaultsConfigurationStore` against an
-  /// ephemeral throwaway suite, adds a shortcut, relaunches, and asserts it
+  /// Backs the app with the shipped `FileConfigurationStore` at an ephemeral
+  /// path, adds a shortcut, relaunches, and asserts it
   /// survived — proving genuine cross-launch persistence (not just in-session
   /// state).
   func testShortcutPersistsAcrossRelaunch() {
-    let suite = "net.garaba.summond.uitest.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let configurationPath = directory.appendingPathComponent("configuration.json").path
     addTeardownBlock {
-      UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+      try? FileManager.default.removeItem(at: directory)
     }
 
-    let app = configuredApp(draftShortcut: "cmd+j", suite: suite)
+    let app = configuredApp(draftShortcut: "cmd+j", configurationPath: configurationPath)
     app.launch()
     XCTAssertTrue(app.buttons["toolbar.addShortcut"].waitForExistence(timeout: launchTimeout))
 
@@ -366,7 +370,7 @@ final class SummondUITests: XCTestCase {
       shortcutRow(app, bundleID: "com.apple.Safari").waitForExistence(timeout: uiTimeout))
 
     app.terminate()
-    app.launch()  // same suite -> the real store must reload the shortcut
+    app.launch()  // same path -> the real store must reload the shortcut
 
     XCTAssertTrue(
       shortcutRow(app, bundleID: "com.apple.Safari").waitForExistence(timeout: launchTimeout),
@@ -381,7 +385,7 @@ final class SummondUITests: XCTestCase {
     setupPresented: Bool = true,
     reloadFails: Bool = false,
     draftShortcut: String? = nil,
-    suite: String? = nil,
+    configurationPath: String? = nil,
     permissionFlow: Bool = false
   ) -> XCUIApplication {
     let app = XCUIApplication()
@@ -400,8 +404,8 @@ final class SummondUITests: XCTestCase {
     if let draftShortcut {
       environment["SUMMOND_UITEST_DRAFT_SHORTCUT"] = draftShortcut
     }
-    if let suite {
-      environment["SUMMOND_UITEST_SUITE"] = suite
+    if let configurationPath {
+      environment["SUMMOND_UITEST_CONFIG_PATH"] = configurationPath
     }
     if permissionFlow {
       environment["SUMMOND_UITEST_PERMISSION_FLOW"] = "1"

@@ -109,7 +109,7 @@
         store: store
       )
       let model = SummondModel(
-        storage: .available(store),
+        storage: store,
         agentClient: agentClient,
         agentService: UITestLoginItemService(status: .enabled),
         statusItemService: UITestLoginItemService(status: .notRegistered),
@@ -121,10 +121,8 @@
     }
 
     private static func makeStore() -> any ConfigurationStore {
-      if let suite = env("SUMMOND_UITEST_SUITE"),
-        let store = UserDefaultsConfigurationStore(suiteName: suite)
-      {
-        return store
+      if let path = env("SUMMOND_UITEST_CONFIG_PATH") {
+        return FileConfigurationStore(url: URL(fileURLWithPath: path))
       }
       return makeInMemoryStore()
     }
@@ -180,27 +178,31 @@
       return makeStatus()
     }
 
-    func requestAccessibilityPrompt() {}
-    func requestInputMonitoringPrompt() {}
+    func requestAccessibilityPrompt() async throws {}
+    func requestInputMonitoringPrompt() async throws {}
 
     private func makeStatus() -> AgentStatus {
       let configState: AgentConfigurationState
       let bindingCount: Int
       let configurationError: String?
 
-      switch store.load() {
-      case .fresh(let configuration):
-        configState = .fresh
-        bindingCount = configuration.bindings.count
+      do {
+        if let configuration = try store.load() {
+          configState = .ok
+          bindingCount = configuration.bindings.count
+        } else {
+          configState = .fresh
+          bindingCount = 0
+        }
         configurationError = nil
-      case .loaded(let configuration):
-        configState = .ok
-        bindingCount = configuration.bindings.count
-        configurationError = nil
-      case .corrupt(let corruption):
-        configState = .corrupt
+      } catch let corruption as ConfigurationCorruption {
+        configState = AgentConfigurationState(corruption: corruption)
         bindingCount = 0
         configurationError = corruption.localizedDescription
+      } catch {
+        configState = .unavailable
+        bindingCount = 0
+        configurationError = error.localizedDescription
       }
 
       return AgentStatus(
@@ -228,7 +230,7 @@
   }
 
   struct UITestSavedDataRemover: SavedDataRemoving {
-    func removeAllSavedData() {}
+    func removeAllSavedData() throws {}
   }
 
   struct UITestAppCatalog: AppDisplayResolving {

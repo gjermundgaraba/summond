@@ -1,9 +1,27 @@
 import CoreGraphics
 import Foundation
+import MachO
 import Security
 import Testing
 
 @testable import SummondCore
+
+@Suite("Mach-O symbol validation")
+struct MachOSymbolValidationTests {
+  @Test("Accepts only defined section symbols with addresses")
+  func callableSymbols() {
+    #expect(
+      SpaceMover.isCallableSymbol(
+        type: UInt8(N_SECT), section: 1, value: 0x1000
+      ))
+    #expect(!SpaceMover.isCallableSymbol(type: UInt8(N_UNDF), section: 0, value: 0))
+    #expect(!SpaceMover.isCallableSymbol(type: UInt8(N_SECT), section: 1, value: 0))
+    #expect(
+      !SpaceMover.isCallableSymbol(
+        type: UInt8(N_STAB) | UInt8(N_SECT), section: 1, value: 0x1000
+      ))
+  }
+}
 
 @Suite("Agent status")
 struct AgentStatusTests {
@@ -50,6 +68,10 @@ struct SystemHealthTests {
         .setupRequired(.accessibilityPermission)
       ),
       (status(inputMonitoringGranted: false), .setupRequired(.inputMonitoringPermission)),
+      (
+        status(configState: .unavailable, lastReloadError: "permission denied"),
+        .degraded(.configurationUnavailable(details: "permission denied"))
+      ),
       (
         status(configState: .corrupt, lastReloadError: "decode failed"),
         .degraded(.configurationCorrupt(details: "decode failed"))
@@ -148,10 +170,7 @@ struct AgentConfigurationReloadTests {
     let reload = reloader.reload()
     let snapshot = try #require(reload.snapshotToInstall)
 
-    #expect(reload.configState == .ok)
-    #expect(reload.bindingCount == 1)
     #expect(reload.lastReloadError == nil)
-    #expect(reload.unresolvedBundleIDs == ["com.example.missing"])
 
     let fields = reloader.statusFields()
     #expect(fields.configState == .ok)
@@ -197,11 +216,13 @@ struct AgentConfigurationReloadTests {
       )
     let failedReload = reloader.reload()
 
-    #expect(failedReload.configState == .invalid)
     #expect(failedReload.snapshotToInstall == nil)
-    #expect(failedReload.bindingCount == 1)
     #expect(failedReload.verboseLogging)
-    #expect(failedReload.unresolvedBundleIDs.isEmpty)
+
+    let fields = reloader.statusFields()
+    #expect(fields.configState == .invalid)
+    #expect(fields.bindingCount == 1)
+    #expect(fields.unresolvedBundleIDs.isEmpty)
 
     let preservedShortcut = try BindingCompiler.compileShortcut(
       Shortcut(key: "f5", mods: ["cmd"])
@@ -210,6 +231,35 @@ struct AgentConfigurationReloadTests {
       firstSnapshot.bindingsByTrigger[preservedShortcut]?.identity.bundleIdentifier
         == "com.apple.safari"
     )
+  }
+
+  @Test("Unavailable storage preserves the previous engine snapshot")
+  func unavailableStoragePreservesPreviousSnapshot() throws {
+    let initialConfiguration = SummondConfiguration(
+      bindings: [
+        try storedBinding(key: "f5", mods: ["cmd"], bundleID: "com.apple.safari")
+      ],
+      verboseLogging: true
+    )
+    let store = MutableLoadedConfigurationStore(configuration: initialConfiguration)
+    let reloader = AgentConfigurationReloader(
+      store: store,
+      appResolver: TestAppResolver(appsByBundleID: [
+        "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
+      ])
+    )
+
+    #expect(reloader.reload().snapshotToInstall != nil)
+    store.loadError = CocoaError(.fileReadNoPermission)
+
+    let failedReload = reloader.reload()
+    let fields = reloader.statusFields()
+
+    #expect(failedReload.snapshotToInstall == nil)
+    #expect(failedReload.verboseLogging)
+    #expect(fields.configState == .unavailable)
+    #expect(fields.bindingCount == 1)
+    #expect(fields.lastReloadError != nil)
   }
 }
 
@@ -383,6 +433,7 @@ private enum TestXPCBridgeError: Error, Equatable {
 private final class MutableLoadedConfigurationStore: @unchecked Sendable, ConfigurationStore {
   private let lock = NSLock()
   private var storedConfiguration: SummondConfiguration
+  private var storedLoadError: Error?
 
   var configuration: SummondConfiguration {
     get {
@@ -395,16 +446,26 @@ private final class MutableLoadedConfigurationStore: @unchecked Sendable, Config
     }
   }
 
+  var loadError: Error? {
+    get { lock.withLock { storedLoadError } }
+    set { lock.withLock { storedLoadError = newValue } }
+  }
+
   init(configuration: SummondConfiguration) {
     self.storedConfiguration = configuration
   }
 
-  func load() -> ConfigurationLoadResult {
-    .loaded(configuration)
+  func load() throws -> SummondConfiguration? {
+    if let loadError { throw loadError }
+    return configuration
   }
 
   func save(_ configuration: SummondConfiguration) throws {
     try ConfigurationValidator.validate(configuration)
+    self.configuration = configuration
+  }
+
+  func replace(with configuration: SummondConfiguration) {
     self.configuration = configuration
   }
 }

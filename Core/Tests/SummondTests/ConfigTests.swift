@@ -7,51 +7,24 @@ import Testing
 @Suite("Configuration store")
 struct ConfigurationStoreTests {
   @Test("Missing data loads as a fresh empty configuration")
-  func absentDataLoadsFresh() {
-    #expect(InMemoryConfigurationStore().load() == .fresh(.empty))
+  func absentDataLoadsFresh() throws {
+    #expect(try InMemoryConfigurationStore().load() == nil)
   }
 
-  @Test("Shared defaults suite is not any product bundle identifier")
-  func sharedDefaultsSuiteDoesNotMatchBundleIdentifiers() {
-    let bundleIdentifiers = [
-      SummondBundleIdentifiers.app,
-      SummondBundleIdentifiers.agent,
-      SummondBundleIdentifiers.statusItem,
-    ]
+  @Test("File store round trips across instances")
+  func fileStoreRoundTripsAcrossInstances() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
 
-    for bundleIdentifier in bundleIdentifiers {
-      #expect(UserDefaultsConfigurationStore.defaultSuiteName != bundleIdentifier)
-    }
-  }
+    let url = directory.appendingPathComponent("configuration.json")
+    let writer = FileConfigurationStore(url: url)
+    let reader = FileConfigurationStore(url: url)
+    #expect(try reader.load() == nil)
 
-  @Test("User defaults store round trips across instances in the same suite")
-  func userDefaultsStoreRoundTripsAcrossInstances() throws {
-    let suiteName = "net.garaba.summond.tests.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defaults.removePersistentDomain(forName: suiteName)
-    defer {
-      defaults.removePersistentDomain(forName: suiteName)
-    }
+    try writer.save(.empty)
 
-    let writer = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
-    let reader = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
-    let bindingID = try #require(UUID(uuidString: "A30A2D05-2481-4C28-8F61-30475F64C391"))
-    let configuration = SummondConfiguration(
-      bindings: [
-        try stored(
-          id: bindingID,
-          key: "f5",
-          mods: ["cmd"],
-          bundleID: "com.apple.Safari",
-          mode: .newWindow
-        )
-      ],
-      verboseLogging: true
-    )
-
-    try writer.save(configuration)
-
-    #expect(reader.load() == .loaded(configuration))
+    #expect(try reader.load() == .empty)
   }
 
   @Test("JSON round trip preserves bindings verbatim")
@@ -69,56 +42,42 @@ struct ConfigurationStoreTests {
 
     try store.save(configuration)
 
-    #expect(store.load() == .loaded(configuration))
+    #expect(try store.load() == configuration)
   }
 
-  @Test("Garbage data loads as corrupt")
-  func garbageDataLoadsCorrupt() {
+  @Test("Garbage data throws typed corruption")
+  func garbageDataThrowsCorruption() {
     let store = InMemoryConfigurationStore(data: Data([0xFF]))
 
-    guard case .corrupt(.undecodable) = store.load() else {
-      Issue.record("Expected undecodable corruption")
-      return
+    #expect(throws: ConfigurationCorruption.self) {
+      try store.load()
     }
   }
 
-  @Test("Unrecognized schema is detected before decoding its payload")
-  func unrecognizedSchemaVersionLoadsCorrupt() throws {
-    let data = Data(#"{ "schemaVersion": 2 }"#.utf8)
-    let store = InMemoryConfigurationStore(data: data)
+  @Test("Save refuses to overwrite corrupt data")
+  func saveRefusesToOverwriteCorruptData() {
+    let store = InMemoryConfigurationStore(data: Data([0xFF]))
 
-    #expect(store.load() == .corrupt(.unsupportedSchemaVersion(2)))
-    #expect(throws: ConfigurationCorruption.unsupportedSchemaVersion(2)) {
+    #expect(throws: ConfigurationCorruption.self) {
       try store.save(.empty)
     }
-    #expect(store.load() == .corrupt(.unsupportedSchemaVersion(2)))
+    #expect(throws: ConfigurationCorruption.self) {
+      try store.load()
+    }
   }
 
-  @Test("A stale user-defaults writer cannot overwrite an unsupported schema")
-  func staleUserDefaultsWriterCannotOverwriteUnsupportedSchema() throws {
-    let suiteName = "net.garaba.summond.tests.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defaults.removePersistentDomain(forName: suiteName)
-    defer {
-      defaults.removePersistentDomain(forName: suiteName)
-    }
+  @Test("Explicit replacement overwrites corrupt data")
+  func replacementOverwritesCorruptData() throws {
+    let store = InMemoryConfigurationStore(data: Data([0xFF]))
 
-    let store = try #require(UserDefaultsConfigurationStore(suiteName: suiteName))
-    let newerConfiguration = Data(#"{ "schemaVersion": 2 }"#.utf8)
-    defaults.set(newerConfiguration, forKey: UserDefaultsConfigurationStore.defaultKey)
-    defaults.synchronize()
+    try store.replace(with: .empty)
 
-    #expect(throws: ConfigurationCorruption.unsupportedSchemaVersion(2)) {
-      try store.save(.empty)
-    }
-    defaults.synchronize()
-    #expect(
-      defaults.data(forKey: UserDefaultsConfigurationStore.defaultKey) == newerConfiguration
-    )
+    #expect(try store.load() == .empty)
   }
 
   @Test("Save rejects invalid configurations")
   func saveRejectsInvalidConfigurations() throws {
+    let duplicateID = UUID()
     let cases: [(SummondConfiguration, ConfigurationValidationError)] = [
       (
         configuration(
@@ -150,6 +109,25 @@ struct ConfigurationStoreTests {
         ),
         .duplicateShortcut(index: 2, description: "cmd+enter")
       ),
+      (
+        SummondConfiguration(
+          bindings: [
+            try stored(
+              id: duplicateID,
+              key: "f5",
+              mods: ["cmd"],
+              bundleID: "com.apple.Safari"
+            ),
+            try stored(
+              id: duplicateID,
+              key: "f6",
+              mods: ["cmd"],
+              bundleID: "com.apple.Terminal"
+            ),
+          ]
+        ),
+        .duplicateID(index: 2)
+      ),
     ]
 
     for (configuration, error) in cases {
@@ -168,7 +146,7 @@ struct ConfigurationStoreTests {
 
     try store.save(configuration)
 
-    #expect(store.load() == .loaded(configuration))
+    #expect(try store.load() == configuration)
   }
 }
 
@@ -182,6 +160,19 @@ struct BindingCompilerTests {
     )
 
     #expect(compiled.snapshot.count == 0)
+    #expect(compiled.unresolvedBundleIDs == ["com.example.missing"])
+  }
+
+  @Test("Compiling reports each unresolved bundle ID once")
+  func deduplicatesUnresolvedBundleIDs() throws {
+    let compiled = try BindingCompiler.compile(
+      [
+        try makeBinding(key: "f5", bundleID: "com.example.missing"),
+        try makeBinding(key: "f6", bundleID: "com.example.missing"),
+      ],
+      appResolver: TestAppResolver(appsByBundleID: [:])
+    )
+
     #expect(compiled.unresolvedBundleIDs == ["com.example.missing"])
   }
 

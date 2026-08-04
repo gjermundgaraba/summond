@@ -85,5 +85,5 @@ release-local:
 
 release-build: release-local
 
-release:
+release: lint core-test app-test
 	scripts/release.sh

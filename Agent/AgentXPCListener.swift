@@ -58,7 +58,7 @@ final class AgentXPCService: NSObject, SummondAgentXPC, @unchecked Sendable {
     let reply = XPCReply(reply)
     let supervisor = supervisor
     Task { @MainActor in
-      reply.send(AgentStatusCodec.encode(supervisor.makeStatus()))
+      reply.send(AgentStatusCodec.encode(await supervisor.status()))
     }
   }
 
@@ -66,21 +66,25 @@ final class AgentXPCService: NSObject, SummondAgentXPC, @unchecked Sendable {
     let reply = XPCReply(reply)
     let supervisor = supervisor
     Task { @MainActor in
-      reply.send(AgentStatusCodec.encode(supervisor.reloadConfiguration()))
+      reply.send(AgentStatusCodec.encode(await supervisor.reloadConfiguration()))
     }
   }
 
-  func requestAccessibilityPrompt() {
+  func requestAccessibilityPrompt(reply: @escaping (Data) -> Void) {
+    let reply = XPCReply(reply)
     let supervisor = supervisor
     Task { @MainActor in
-      supervisor.requestAccessibilityPrompt()
+      await supervisor.requestAccessibilityPrompt()
+      reply.send(Data())
     }
   }
 
-  func requestInputMonitoringPrompt() {
+  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void) {
+    let reply = XPCReply(reply)
     let supervisor = supervisor
     Task { @MainActor in
-      supervisor.requestInputMonitoringPrompt()
+      await supervisor.requestInputMonitoringPrompt()
+      reply.send(Data())
     }
   }
 }

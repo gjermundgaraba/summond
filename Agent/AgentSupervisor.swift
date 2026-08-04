@@ -30,27 +30,34 @@ final class AgentSupervisor {
   // Whether the crash-loop breaker currently permits installing the tap.
   // Re-evaluated each call against an advancing clock, so a tripped breaker
   // recovers once the launch burst ages out of the throttle window.
-  private var tapInstallationAllowed: Bool {
+  private var restartThrottleAllowsTap: Bool {
     restartThrottle.shouldInstallTap(
       launches: launchHistory,
       now: Date().timeIntervalSince1970
     )
   }
 
-  func reloadConfiguration() -> AgentStatus {
+  func status() async -> AgentStatus {
+    await attemptEngineStart()
+    startEngineStartupPollingIfNeeded()
+    return makeStatus()
+  }
+
+  func loadConfiguration() {
     let result = reloader.reload()
     if let snapshot = result.snapshotToInstall {
       engine.replaceSnapshot(snapshot, verboseLogging: result.verboseLogging)
     } else if let error = result.lastReloadError {
       logger.warning("configuration reload failed, preserving previous snapshot: \(error)")
     }
-
-    attemptEngineStart()
-    startEngineStartupPollingIfNeeded()
-    return makeStatus()
   }
 
-  func makeStatus() -> AgentStatus {
+  func reloadConfiguration() async -> AgentStatus {
+    loadConfiguration()
+    return await status()
+  }
+
+  private func makeStatus() -> AgentStatus {
     let fields = reloader.statusFields()
     let engineStatus = engine.status
     let accessibilityGranted = AccessibilityTrust.isTrusted(prompt: false)
@@ -72,20 +79,20 @@ final class AgentSupervisor {
     )
   }
 
-  func requestAccessibilityPrompt() {
+  func requestAccessibilityPrompt() async {
     _ = AccessibilityTrust.isTrusted(prompt: true)
-    attemptEngineStart()
+    await attemptEngineStart()
     startEngineStartupPollingIfNeeded()
   }
 
-  func requestInputMonitoringPrompt() {
+  func requestInputMonitoringPrompt() async {
     _ = InputMonitoringTrust.isTrusted(prompt: true)
-    attemptEngineStart()
+    await attemptEngineStart()
     startEngineStartupPollingIfNeeded()
   }
 
-  private func attemptEngineStart() {
-    guard tapInstallationAllowed else {
+  private func attemptEngineStart() async {
+    guard restartThrottleAllowsTap else {
       logger.fault("event tap installation deferred: restart loop detected")
       return
     }
@@ -102,11 +109,7 @@ final class AgentSupervisor {
       return
     }
 
-    do {
-      try engine.start()
-    } catch {
-      logger.warning("event tap start failed: \(error.localizedDescription)")
-    }
+    await engine.start()
   }
 
   private func startEngineStartupPollingIfNeeded() {
@@ -130,7 +133,7 @@ final class AgentSupervisor {
           return
         }
 
-        attemptEngineStart()
+        await attemptEngineStart()
         if engine.status.isTapInstalled {
           engineStartupTask = nil
           return
@@ -150,7 +153,7 @@ final class AgentSupervisor {
     guard inputMonitoringGranted else {
       return .inputMonitoringDenied
     }
-    if !tapInstallationAllowed {
+    if !restartThrottleAllowsTap {
       return .restartLoopDetected
     }
     if engineStatus.isTapInstalled && engineStatus.isTapEnabled {

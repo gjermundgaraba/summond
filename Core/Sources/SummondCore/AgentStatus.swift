@@ -3,8 +3,18 @@ import Foundation
 public enum AgentConfigurationState: String, Codable, Equatable, Sendable {
   case ok
   case fresh
+  case unavailable
   case corrupt
   case invalid
+
+  public init(corruption: ConfigurationCorruption) {
+    switch corruption {
+    case .undecodable:
+      self = .corrupt
+    case .invalid:
+      self = .invalid
+    }
+  }
 }
 
 public enum EventTapFailureReason: String, Codable, Equatable, Sendable {
@@ -69,6 +79,6 @@ public enum AgentStatusCodec {
 @objc public protocol SummondAgentXPC {
   func status(reply: @escaping (Data) -> Void)
   func reloadConfiguration(reply: @escaping (Data) -> Void)
-  func requestAccessibilityPrompt()
-  func requestInputMonitoringPrompt()
+  func requestAccessibilityPrompt(reply: @escaping (Data) -> Void)
+  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void)
 }

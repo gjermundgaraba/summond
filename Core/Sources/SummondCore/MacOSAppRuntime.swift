@@ -31,7 +31,7 @@ protocol MacOSAppRuntimeSystem: Sendable {
   func runningApplication(bundleIdentifier: String) -> RunningApplicationState?
   func hasWindowOnCurrentSpace(processID: pid_t) -> Bool
   func windowIDsOnAnySpace(processID: pid_t) -> [CGWindowID]
-  func activateApplication(bundleIdentifier: String) async -> Bool
+  func activateApplication(processID: pid_t) async -> Bool
   func launchApplication(identity: AppIdentity) async -> String?
   func openNewWindow(for identity: AppIdentity) async -> Bool
   func moveWindowsToCurrentSpace(_ windowIDs: [CGWindowID], processID: pid_t) async -> Bool
@@ -69,7 +69,7 @@ public struct MacOSAppRuntime: AppRuntime {
     }
 
     if system.hasWindowOnCurrentSpace(processID: app.processID) {
-      return await activateExistingWindow(identity)
+      return await activateExistingWindow(app)
     }
 
     return await openNewWindowOnCurrentSpace(identity, app: app)
@@ -81,7 +81,7 @@ public struct MacOSAppRuntime: AppRuntime {
     }
 
     if system.hasWindowOnCurrentSpace(processID: app.processID) {
-      return await activateExistingWindow(identity)
+      return await activateExistingWindow(app)
     }
 
     let windowIDs = system.windowIDsOnAnySpace(processID: app.processID)
@@ -93,7 +93,7 @@ public struct MacOSAppRuntime: AppRuntime {
       return .failed(reason: "failed to move windows to current space")
     }
 
-    guard await activateApplication(identity) else {
+    guard await system.activateApplication(processID: app.processID) else {
       return .failed(reason: "failed to activate app after moving windows")
     }
 
@@ -111,8 +111,8 @@ public struct MacOSAppRuntime: AppRuntime {
     return app
   }
 
-  private func activateExistingWindow(_ identity: AppIdentity) async -> OpenAppResult {
-    guard await activateApplication(identity) else {
+  private func activateExistingWindow(_ app: RunningApplicationState) async -> OpenAppResult {
+    guard await system.activateApplication(processID: app.processID) else {
       return .failed(reason: "failed to activate existing window")
     }
 
@@ -138,15 +138,11 @@ public struct MacOSAppRuntime: AppRuntime {
       return .failed(reason: "new window did not appear on current space")
     }
 
-    guard await activateApplication(identity) else {
+    guard await system.activateApplication(processID: app.processID) else {
       return .failed(reason: "failed to activate app after opening new window")
     }
 
     return .openedNewWindow
-  }
-
-  private func activateApplication(_ identity: AppIdentity) async -> Bool {
-    await system.activateApplication(bundleIdentifier: identity.bundleIdentifier)
   }
 
   private func launch(_ identity: AppIdentity) async -> OpenAppResult {
@@ -189,16 +185,9 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
     )
   }
 
-  func activateApplication(bundleIdentifier: String) async -> Bool {
-    guard
-      let app = NSRunningApplication.runningApplications(
-        withBundleIdentifier: bundleIdentifier
-      )
-      .first
-    else {
-      logger.warning(
-        "[runtime] activateApplication: no running instance found for '\(bundleIdentifier)'"
-      )
+  func activateApplication(processID: pid_t) async -> Bool {
+    guard let app = NSRunningApplication(processIdentifier: processID) else {
+      logger.warning("[runtime] activateApplication: process \(processID) is no longer running")
       return false
     }
 
@@ -206,9 +195,7 @@ struct LiveMacOSAppRuntimeSystem: MacOSAppRuntimeSystem {
       app.activate(options: .activateAllWindows)
     }
     if !activated {
-      logger.warning(
-        "[runtime] activateApplication: activation failed for '\(bundleIdentifier)'"
-      )
+      logger.warning("[runtime] activateApplication: activation failed for process \(processID)")
     }
     return activated
   }

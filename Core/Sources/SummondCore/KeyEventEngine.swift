@@ -3,19 +3,6 @@ import Foundation
 import OSLog
 import os
 
-public enum KeyEventEngineError: Error, Equatable, Sendable {
-  case eventTapInstallationFailed
-}
-
-extension KeyEventEngineError: LocalizedError {
-  public var errorDescription: String? {
-    switch self {
-    case .eventTapInstallationFailed:
-      "Failed to create event tap. Grant Accessibility permission in System Settings."
-    }
-  }
-}
-
 public struct KeyEventEngineStatus: Equatable, Sendable {
   public let isTapInstalled: Bool
   public let isTapEnabled: Bool
@@ -50,6 +37,7 @@ public final class KeyEventEngine: @unchecked Sendable {
     var snapshot: BindingSnapshot
     var eventTap: CFMachPort?
     var isStarting = false
+    var startupWaiters: [CheckedContinuation<Void, Never>] = []
     var wasDisabledByTimeout = false
     var wasDisabledByUserInput = false
   }
@@ -94,50 +82,36 @@ public final class KeyEventEngine: @unchecked Sendable {
     )
   }
 
-  public func start() throws {
+  public func start() async {
     // Single-flight: claim the "starting" slot atomically so a concurrent or
-    // re-entrant start() cannot spawn a second tap thread. `eventTap` is set
-    // later, on the spawned thread, so guarding on it alone would leave that
-    // window open. The slot is released by the tap thread when it finishes
-    // setup (see finishStartup), not here -- so even a retry after the readiness
-    // timeout below, while the first thread is still in flight, is suppressed
-    // rather than racing it into a duplicate tap.
-    let shouldStart = state.withLockUnchecked { state -> Bool in
-      guard state.eventTap == nil, !state.isStarting else {
-        return false
+    // re-entrant start() cannot spawn a second tap thread. Every caller waits
+    // for that shared attempt, so status never mistakes startup for failure.
+    await withCheckedContinuation { continuation in
+      var resumesImmediately = false
+      let shouldStart = state.withLockUnchecked { state -> Bool in
+        guard state.eventTap == nil else {
+          resumesImmediately = true
+          return false
+        }
+        state.startupWaiters.append(continuation)
+        guard !state.isStarting else {
+          return false
+        }
+        state.isStarting = true
+        return true
       }
-      state.isStarting = true
-      return true
-    }
-    guard shouldStart else {
-      return
-    }
 
-    // The tap is created and serviced entirely on its own thread; we block here
-    // only until that thread reports whether creation succeeded, so callers keep
-    // the existing synchronous "throws on failure" contract.
-    let ready = DispatchSemaphore(value: 0)
-    let thread = Thread { [weak self] in
-      guard let self else {
-        ready.signal()
-        return
+      if resumesImmediately {
+        continuation.resume()
+      } else if shouldStart {
+        let thread = Thread { [weak self] in
+          self?.runTapThread()
+        }
+        thread.name = "net.garaba.summond.keytap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
       }
-      self.runTapThread(signalingReadyWith: ready)
     }
-    thread.name = "net.garaba.summond.keytap"
-    thread.qualityOfService = .userInteractive
-    thread.start()
-
-    if ready.wait(timeout: .now() + 5) == .timedOut {
-      // The thread is still in flight; it keeps the single-flight slot until it
-      // reports, so retries no-op until then instead of spawning a duplicate.
-      logger.error("event tap thread did not report readiness in time")
-    }
-
-    guard state.withLockUnchecked({ $0.eventTap != nil }) else {
-      throw KeyEventEngineError.eventTapInstallationFailed
-    }
-    logger.info("event tap installed on dedicated thread")
   }
 
   public func replaceSnapshot(
@@ -157,7 +131,7 @@ public final class KeyEventEngine: @unchecked Sendable {
   /// thread's run loop, then services it for the lifetime of the process. The
   /// faceless agent runs until launchd kills it, at which point the OS reclaims
   /// the tap, so there is no separate teardown path.
-  private func runTapThread(signalingReadyWith ready: DispatchSemaphore) {
+  private func runTapThread() {
     let eventMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
     let engine = Unmanaged.passUnretained(self).toOpaque()
 
@@ -172,35 +146,38 @@ public final class KeyEventEngine: @unchecked Sendable {
       )
     else {
       finishStartup(installedTap: nil)
-      ready.signal()
+      logger.warning("event tap installation failed")
       return
     }
 
     guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
       CFMachPortInvalidate(tap)
       finishStartup(installedTap: nil)
-      ready.signal()
+      logger.warning("event tap run-loop source creation failed")
       return
     }
 
     CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
     finishStartup(installedTap: tap)
-
-    // Let start() observe the installed tap, then service it until the process
-    // exits.
-    ready.signal()
+    logger.info("event tap installed on dedicated thread")
     CFRunLoopRun()
   }
 
   /// Records the outcome of a tap-thread setup attempt and releases the
   /// single-flight slot. Called exactly once per `runTapThread` -- with the
   /// installed tap on success, or `nil` on failure -- so the slot is held for
-  /// the whole in-flight window, including past a `start()` readiness timeout.
+  /// the whole in-flight window.
   private func finishStartup(installedTap tap: CFMachPort?) {
-    state.withLockUnchecked { state in
+    let waiters = state.withLockUnchecked { state in
       state.eventTap = tap
       state.isStarting = false
+      let waiters = state.startupWaiters
+      state.startupWaiters.removeAll(keepingCapacity: true)
+      return waiters
+    }
+    for waiter in waiters {
+      waiter.resume()
     }
   }
 

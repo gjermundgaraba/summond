@@ -15,6 +15,7 @@ struct DockMenuOpener: Sendable {
     guard let dockElements = resolveDockElements(for: identity) else {
       return false
     }
+    let previouslyVisibleMenu = firstDescendant(in: dockElements.dock, where: isMenu)
 
     guard revealMenu(for: identity, appElement: dockElements.app) else {
       return false
@@ -22,7 +23,11 @@ struct DockMenuOpener: Sendable {
 
     guard
       let menu = await findVisibleMenu(
-        appElement: dockElements.app, dockElement: dockElements.dock, identity: identity)
+        appElement: dockElements.app,
+        dockElement: dockElements.dock,
+        excluding: previouslyVisibleMenu,
+        identity: identity
+      )
     else {
       return false
     }
@@ -32,7 +37,7 @@ struct DockMenuOpener: Sendable {
     }
 
     let pressResult = AXUIElementPerformAction(menuItem, kAXPressAction as CFString)
-    guard pressResult == .success else {
+    guard Self.actionMayHaveCompleted(pressResult) else {
       logger.warning("[dock-menu] Failed to press new-window item: \(pressResult.rawValue)")
       return false
     }
@@ -58,7 +63,7 @@ struct DockMenuOpener: Sendable {
 
   private func revealMenu(for identity: AppIdentity, appElement: AXUIElement) -> Bool {
     let result = AXUIElementPerformAction(appElement, kAXShowMenuAction as CFString)
-    guard result == .success else {
+    guard Self.actionMayHaveCompleted(result) else {
       logger.warning(
         "[dock-menu] Failed to show menu for '\(identity.bundleIdentifier)': \(result.rawValue)")
       return false
@@ -71,6 +76,7 @@ struct DockMenuOpener: Sendable {
   private func findVisibleMenu(
     appElement: AXUIElement,
     dockElement: AXUIElement,
+    excluding previouslyVisibleMenu: AXUIElement?,
     identity: AppIdentity
   ) async -> AXUIElement? {
     for delay in Self.menuSearchDelayNanoseconds {
@@ -80,8 +86,11 @@ struct DockMenuOpener: Sendable {
         return nil
       }
 
-      if let menu = firstDescendant(in: appElement, where: isMenu)
-        ?? firstDescendant(in: dockElement, where: isMenu)
+      if let menu = firstDescendant(in: appElement, where: isMenu) {
+        return menu
+      }
+      if let menu = firstDescendant(in: dockElement, where: isMenu),
+        previouslyVisibleMenu.map({ !CFEqual($0, menu) }) ?? true
       {
         return menu
       }
@@ -194,6 +203,10 @@ struct DockMenuOpener: Sendable {
     }
 
     return title == Self.newWindowTitle
+  }
+
+  static func actionMayHaveCompleted(_ result: AXError) -> Bool {
+    result == .success || result == .cannotComplete
   }
 
   private func children(of element: AXUIElement) -> [AXUIElement]? {

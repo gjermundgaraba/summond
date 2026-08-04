@@ -30,7 +30,7 @@ struct SetupAssistantView: View {
           action: {
             startPermissionSetup(
               pane: .accessibility,
-              requestAgentPrompt: model.requestAccessibilitySetup,
+              requestAgentPrompt: { Task { await model.requestAccessibilitySetup() } },
               fallback: model.openAccessibilitySettings
             )
           },
@@ -45,12 +45,19 @@ struct SetupAssistantView: View {
           action: {
             startPermissionSetup(
               pane: .inputMonitoring,
-              requestAgentPrompt: model.requestInputMonitoringSetup,
+              requestAgentPrompt: { Task { await model.requestInputMonitoringSetup() } },
               fallback: model.openInputMonitoringSettings
             )
           },
           accessibilityIdentifier: "setup.openInputMonitoringSettingsButton"
         )
+        if let error = model.permissionError {
+          Text("Permission request failed: \(error)")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+            .accessibilityIdentifier("setup.permissionError")
+        }
       }
       .padding(.horizontal, 28)
       .padding(.bottom, 24)

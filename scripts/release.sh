@@ -37,6 +37,8 @@ Environment:
   TEAM_ID                  Same as --team-id.
   NOTARY_PROFILE           Same as --notary-profile.
   OUTPUT_DIR               Same as --output-dir.
+  MARKETING_VERSION        Required in release mode (for example, 1.1).
+  CURRENT_PROJECT_VERSION  Required in release mode; positive integer build number.
 USAGE
 }
 
@@ -53,6 +55,8 @@ SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/release}"
+RELEASE_MARKETING_VERSION="${MARKETING_VERSION:-}"
+RELEASE_BUILD_NUMBER="${CURRENT_PROJECT_VERSION:-}"
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -189,10 +193,20 @@ require_signing_identity() {
   SIGNING_IDENTITY="$identity_hash"
 }
 
+validate_release_versions() {
+  [[ "$RELEASE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] \
+    || die "MARKETING_VERSION must contain one to three numeric components."
+  [[ "$RELEASE_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+    || die "CURRENT_PROJECT_VERSION must be a positive integer."
+}
+
 release_preflight() {
   log "Running release preflight"
   [[ -n "$TEAM_ID" ]] || die "release mode requires TEAM_ID or --team-id."
   [[ -n "$NOTARY_PROFILE" ]] || die "release mode requires NOTARY_PROFILE or --notary-profile."
+  [[ -n "$RELEASE_MARKETING_VERSION" ]] || die "release mode requires MARKETING_VERSION."
+  [[ -n "$RELEASE_BUILD_NUMBER" ]] || die "release mode requires CURRENT_PROJECT_VERSION."
+  validate_release_versions
   require_signing_identity
 
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
@@ -202,6 +216,11 @@ release_preflight() {
 
 local_preflight() {
   log "Running local preflight"
+  if [[ -n "$RELEASE_MARKETING_VERSION" || -n "$RELEASE_BUILD_NUMBER" ]]; then
+    [[ -n "$RELEASE_MARKETING_VERSION" && -n "$RELEASE_BUILD_NUMBER" ]] \
+      || die "set both MARKETING_VERSION and CURRENT_PROJECT_VERSION."
+    validate_release_versions
+  fi
   if [[ "$SMOKE_MODE" -eq 1 ]]; then
     SIGNING_IDENTITY="-"
     log "Using ad-hoc signing for SMOKE_TEST"
@@ -231,6 +250,11 @@ build_release_app() {
   if [[ "$SMOKE_MODE" -eq 1 ]]; then
     log "Building SMOKE_TEST entry point"
     set -- SWIFT_ACTIVE_COMPILATION_CONDITIONS=SMOKE_TEST
+  fi
+  if [[ -n "$RELEASE_MARKETING_VERSION" ]]; then
+    set -- "$@" \
+      "MARKETING_VERSION=$RELEASE_MARKETING_VERSION" \
+      "CURRENT_PROJECT_VERSION=$RELEASE_BUILD_NUMBER"
   fi
 
   HOME="$build_home" \
@@ -313,26 +337,16 @@ sign_artifacts() {
   sign_path "$APP_PATH"
 }
 
-run_or_soft_fail() {
-  local description="$1"
-  shift
-
-  "$@" && return 0
-  local status=$?
-  if [[ "$LOCAL_MODE" -eq 1 ]]; then
-    warn "$description failed with status $status in local mode; continuing"
-    return 0
-  fi
-
-  die "$description failed with status $status"
-}
-
 verify_artifacts() {
   log "Verifying signed app"
-  run_or_soft_fail "codesign verification" \
-    codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-  run_or_soft_fail "spctl assessment" \
-    spctl -a -vv --type exec "$APP_PATH"
+  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+  if ! spctl -a -vv --type exec "$APP_PATH"; then
+    if [[ "$LOCAL_MODE" -eq 1 ]]; then
+      warn "spctl assessment failed in local mode; continuing"
+    else
+      die "spctl assessment failed"
+    fi
+  fi
 }
 
 verify_signed_identity() {

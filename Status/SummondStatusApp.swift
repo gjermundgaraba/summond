@@ -174,6 +174,7 @@ private final class StatusMenuModel {
   private(set) var agentStatus: AgentStatus?
   private(set) var isReloading = false
   private(set) var reloadError: String?
+  private var requestSequence = 0
 
   private let agentClient: any AgentClientProtocol
 
@@ -197,10 +198,16 @@ private final class StatusMenuModel {
   }
 
   func refresh() async {
+    guard !isReloading else { return }
+    requestSequence += 1
+    let sequence = requestSequence
     do {
-      agentStatus = try await agentClient.status()
+      let status = try await agentClient.status()
+      guard sequence == requestSequence else { return }
+      agentStatus = status
       reloadError = nil
     } catch {
+      guard sequence == requestSequence else { return }
       agentStatus = nil
     }
   }
@@ -208,6 +215,7 @@ private final class StatusMenuModel {
   func reloadConfiguration() async {
     guard !isReloading else { return }
     isReloading = true
+    requestSequence += 1
     defer { isReloading = false }
     do {
       agentStatus = try await agentClient.reloadConfiguration()
