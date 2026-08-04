@@ -5,7 +5,7 @@ import Testing
 
 /// Exercises the real AgentClient machinery — NSXPC connection setup, the
 /// XPCAsyncBridge one-shot reply path, AgentStatusCodec decode, and the
-/// interruption/invalidation bookkeeping — across a genuine XPC boundary, by
+/// interruption/invalidation handling — across a genuine XPC boundary, by
 /// connecting to an in-process anonymous NSXPCListener instead of the agent's
 /// mach service. No signing, launchd, SMAppService, or VM is involved here; the
 /// launchd + mach-service path is exercised by the Tart smoke (`make smoke-tart`).
@@ -37,24 +37,6 @@ struct AgentClientIntegrationTests {
         reloadPayload: AgentStatusCodec.encode(Self.statusB)
       )
     )
-  }
-
-  @Test("status round-trips a decoded AgentStatus across the XPC boundary")
-  func statusRoundTrips() async throws {
-    let harness = makeHarness()
-    defer { withExtendedLifetime(harness) {} }
-
-    let client = harness.makeClient()
-    #expect(try await client.status() == Self.statusA)
-  }
-
-  @Test("reloadConfiguration round-trips its own decoded AgentStatus")
-  func reloadRoundTrips() async throws {
-    let harness = makeHarness()
-    defer { withExtendedLifetime(harness) {} }
-
-    let client = harness.makeClient()
-    #expect(try await client.reloadConfiguration() == Self.statusB)
   }
 
   @Test("A malformed reply surfaces a decode error")
@@ -92,57 +74,47 @@ struct AgentClientIntegrationTests {
     }
   }
 
-  @Test("The client reconnects after its connection is invalidated")
-  func reconnectsAfterInvalidation() async throws {
+  @Test("Cancellation invalidates an in-flight connection")
+  func cancellationInvalidatesConnection() async {
     let harness = makeHarness()
+    harness.stub.setHold(true)
     defer { withExtendedLifetime(harness) {} }
 
-    let client = harness.makeClient()
-    #expect(try await client.status() == Self.statusA)
+    let task = Task { try await harness.makeClient().status() }
+    await harness.stub.waitForStatusCall()
+    task.cancel()
 
-    harness.invalidateAcceptedConnections()
-    var lastReconnectError: (any Error)?
-    for _ in 0..<100 {
-      do {
-        #expect(try await client.status() == Self.statusA)
-        return
-      } catch let error as XPCBridgeError {
-        guard error.isReconnectRace else {
-          throw error
-        }
-        lastReconnectError = error
-      } catch let error as CocoaError
-        where error.code == .xpcConnectionInterrupted || error.code == .xpcConnectionInvalid
-      {
-        lastReconnectError = error
-      } catch {
-        throw error
-      }
-      try? await Task.sleep(nanoseconds: 10_000_000)
+    switch await task.result {
+    case .success:
+      Issue.record("Expected the cancelled call to fail")
+    case .failure(let error):
+      #expect(error as? XPCBridgeError == .cancelled(operation: "Agent status"))
     }
-    throw lastReconnectError ?? XPCBridgeError.timedOut(operation: "reconnect")
+    #expect(await harness.waitForInvalidatedConnection())
   }
 
-  @Test("Sequential calls reuse a single cached connection")
-  func reusesConnection() async throws {
+  @Test("Sequential calls round-trip across fresh connections")
+  func roundTripsAcrossOneShotConnections() async throws {
     let harness = makeHarness()
     defer { withExtendedLifetime(harness) {} }
 
     let client = harness.makeClient()
     #expect(try await client.status() == Self.statusA)
     #expect(try await client.reloadConfiguration() == Self.statusB)
-    #expect(harness.acceptedConnectionCount() == 1)
+    #expect(harness.acceptedConnectionCount() == 2)
   }
-}
 
-extension XPCBridgeError {
-  fileprivate var isReconnectRace: Bool {
-    switch self {
-    case .connectionInterrupted(_), .connectionInvalidated(_):
-      true
-    case .timedOut(_), .cancelled(_):
-      false
-    }
+  @Test("Permission prompt calls wait for acknowledgement")
+  func permissionPromptsAreAcknowledged() async throws {
+    let harness = makeHarness()
+    defer { withExtendedLifetime(harness) {} }
+
+    let client = harness.makeClient()
+    try await client.requestAccessibilityPrompt()
+    try await client.requestInputMonitoringPrompt()
+
+    #expect(harness.stub.promptCounts() == (accessibility: 1, inputMonitoring: 1))
+    #expect(harness.acceptedConnectionCount() == 2)
   }
 }
 
@@ -157,6 +129,8 @@ private final class StubAgentXPCService: NSObject, SummondAgentXPC, @unchecked S
   private var heldReplies: [(Data) -> Void] = []
   private var statusCallArrived = false
   private var statusCallArrival: CheckedContinuation<Void, Never>?
+  private var accessibilityPromptCount = 0
+  private var inputMonitoringPromptCount = 0
 
   init(statusPayload: Data, reloadPayload: Data) {
     self.statusPayload = statusPayload
@@ -187,8 +161,19 @@ private final class StubAgentXPCService: NSObject, SummondAgentXPC, @unchecked S
     reply(reloadPayload)
   }
 
-  func requestAccessibilityPrompt() {}
-  func requestInputMonitoringPrompt() {}
+  func requestAccessibilityPrompt(reply: @escaping (Data) -> Void) {
+    lock.withLock { accessibilityPromptCount += 1 }
+    reply(Data())
+  }
+
+  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void) {
+    lock.withLock { inputMonitoringPromptCount += 1 }
+    reply(Data())
+  }
+
+  func promptCounts() -> (accessibility: Int, inputMonitoring: Int) {
+    lock.withLock { (accessibilityPromptCount, inputMonitoringPromptCount) }
+  }
 
   /// Suspends until `status` has been invoked at least once, resolving the
   /// register-vs-arrive race in either order.
@@ -216,6 +201,7 @@ private final class AnonymousAgentHarness: NSObject, NSXPCListenerDelegate, @unc
   let stub: StubAgentXPCService
   private let lock = NSLock()
   private var acceptedConnections: [NSXPCConnection] = []
+  private var invalidatedConnectionCount = 0
 
   init(stub: StubAgentXPCService) {
     self.stub = stub
@@ -230,6 +216,11 @@ private final class AnonymousAgentHarness: NSObject, NSXPCListenerDelegate, @unc
   ) -> Bool {
     connection.exportedInterface = NSXPCInterface(with: SummondAgentXPC.self)
     connection.exportedObject = stub
+    connection.invalidationHandler = { [weak self] in
+      self?.lock.withLock {
+        self?.invalidatedConnectionCount += 1
+      }
+    }
     lock.withLock { acceptedConnections.append(connection) }
     connection.resume()
     return true
@@ -245,10 +236,19 @@ private final class AnonymousAgentHarness: NSObject, NSXPCListenerDelegate, @unc
     }
   }
 
+  func waitForInvalidatedConnection() async -> Bool {
+    for _ in 0..<100 {
+      if lock.withLock({ invalidatedConnectionCount > 0 }) {
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    return false
+  }
+
   func makeClient() -> AgentClient {
     let endpoint = listener.endpoint
     return AgentClient(
-      logger: SummondLoggers.xpc,
       makeConnection: { NSXPCConnection(listenerEndpoint: endpoint) }
     )
   }

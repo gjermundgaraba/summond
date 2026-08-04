@@ -1,4 +1,3 @@
-import OSLog
 import SummondCore
 import SwiftUI
 
@@ -22,16 +21,7 @@ struct SummondApp: App {
       }
     #endif
 
-    let storage: SummondModel.ConfigurationStorage
-    if let userDefaultsStore = UserDefaultsConfigurationStore() {
-      storage = .available(userDefaultsStore)
-    } else {
-      let message = "Changes cannot be saved because settings storage is unavailable."
-      SummondLoggers.config.fault("Settings storage unavailable")
-      storage = .unavailable(message)
-    }
-
-    let model = SummondModel(storage: storage)
+    let model = SummondModel(storage: FileConfigurationStore())
     _model = State(initialValue: model)
     // Unit tests host this executable; never let that host mutate live services.
     guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {

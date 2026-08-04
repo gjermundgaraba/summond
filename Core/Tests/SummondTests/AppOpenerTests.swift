@@ -12,6 +12,11 @@ struct DockMenuOpenerTests {
         title: "New Window", command: nil, modifiers: nil
       ))
   }
+
+  @Test("Treats an indeterminate AX action as possibly completed")
+  func acceptsCannotCompleteAction() {
+    #expect(DockMenuOpener.actionMayHaveCompleted(.cannotComplete))
+  }
 }
 
 @Suite("App opener")
@@ -25,7 +30,7 @@ struct AppOpenerTests {
     let second = try makeCompiledBinding(key: "f6", bundleID: "com.apple.safari", mode: .launch)
 
     let firstOpen = Task { await opener.open(first) }
-    try #require(await runtime.waitForPendingOpen())
+    #expect(await runtime.waitForPendingOpen())
     await opener.open(second)
 
     #expect(runtime.openCount() == 1)
@@ -45,7 +50,7 @@ struct AppOpenerTests {
     let binding = try makeCompiledBinding(bundleID: "com.apple.safari", mode: .launch)
 
     let firstOpen = Task { await opener.open(binding) }
-    try #require(await runtime.waitForPendingOpen())
+    #expect(await runtime.waitForPendingOpen())
 
     runtime.completeOpen(with: .failed(reason: "boom"))
     await firstOpen.value
@@ -67,7 +72,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .launched)
     #expect(system.launchRequests() == ["com.apple.safari"])
     #expect(system.newWindowRequests().isEmpty)
-    #expect(system.activatedBundleIDs().isEmpty)
+    #expect(system.activatedProcessIDs().isEmpty)
   }
 
   @Test("New-window mode activates an existing window without opening a new one")
@@ -82,7 +87,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .activatedExistingWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("New-window mode fails when activating an existing window fails")
@@ -98,7 +103,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .failed(reason: "failed to activate existing window"))
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("New-window mode requests a new window for a running app off the current space")
@@ -114,7 +119,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .openedNewWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests() == ["com.apple.safari"])
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("New-window mode fails when activation after opening a new window fails")
@@ -131,7 +136,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .failed(reason: "failed to activate app after opening new window"))
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests() == ["com.apple.safari"])
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("New-window mode launches when the app is not running")
@@ -158,7 +163,7 @@ struct MacOSAppRuntimeTests {
 
     #expect(result == .failed(reason: "new window did not appear on current space"))
     #expect(system.newWindowRequests() == ["com.apple.safari"])
-    #expect(system.activatedBundleIDs().isEmpty)
+    #expect(system.activatedProcessIDs().isEmpty)
   }
 
   @Test("New-window mode fails when waiting for a new window is cancelled")
@@ -175,7 +180,7 @@ struct MacOSAppRuntimeTests {
 
     #expect(result == .failed(reason: "cancelled while waiting for new window"))
     #expect(system.newWindowRequests() == ["com.apple.safari"])
-    #expect(system.activatedBundleIDs().isEmpty)
+    #expect(system.activatedProcessIDs().isEmpty)
   }
 
   @Test("Move mode launches when the app is not running")
@@ -203,7 +208,7 @@ struct MacOSAppRuntimeTests {
     #expect(result == .activatedExistingWindow)
     #expect(system.launchRequests().isEmpty)
     #expect(system.moveRequests().isEmpty)
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("Move mode moves windows from another space and activates the app")
@@ -220,7 +225,7 @@ struct MacOSAppRuntimeTests {
     #expect(system.launchRequests().isEmpty)
     #expect(system.newWindowRequests().isEmpty)
     #expect(system.moveRequests() == [[7, 8]])
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 
   @Test("Move mode launches when the app is running without windows")
@@ -250,7 +255,7 @@ struct MacOSAppRuntimeTests {
 
     #expect(result == .failed(reason: "failed to move windows to current space"))
     #expect(system.moveRequests() == [[7]])
-    #expect(system.activatedBundleIDs().isEmpty)
+    #expect(system.activatedProcessIDs().isEmpty)
   }
 
   @Test("Move mode fails when activation after moving windows fails")
@@ -266,7 +271,7 @@ struct MacOSAppRuntimeTests {
 
     #expect(result == .failed(reason: "failed to activate app after moving windows"))
     #expect(system.moveRequests() == [[7]])
-    #expect(system.activatedBundleIDs() == ["com.apple.safari"])
+    #expect(system.activatedProcessIDs() == [42])
   }
 }
 

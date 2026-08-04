@@ -194,6 +194,14 @@ struct SettingsView: View {
           }
         }
 
+        if let error = model.permissionError {
+          LabeledContent("Permission request error") {
+            Text(error)
+              .foregroundStyle(.red)
+              .textSelection(.enabled)
+          }
+        }
+
         if let error = model.reloadError {
           LabeledContent("Reload error") {
             Text(error)
@@ -299,6 +307,7 @@ extension AgentConfigurationState {
     switch self {
     case .ok: "Ready"
     case .fresh: "New"
+    case .unavailable: "Unavailable"
     case .corrupt: "Corrupt"
     case .invalid: "Invalid"
     }

@@ -6,6 +6,7 @@ import Foundation
 final class TestAppRuntime: @unchecked Sendable, AppRuntime {
   private let lock = NSLock()
   private var shouldSuspendNextOpen = false
+  private var shouldCancelPendingOpen = false
   private var pendingOpenContinuation: CheckedContinuation<OpenAppResult, Never>?
   private var openRequests: [(bundleID: String, mode: AppOpenMode)] = []
 
@@ -25,8 +26,16 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
 
     if suspended {
       return await withCheckedContinuation { continuation in
-        lock.withLock {
+        let shouldSuspend = lock.withLock { () -> Bool in
+          if shouldCancelPendingOpen {
+            shouldCancelPendingOpen = false
+            return false
+          }
           pendingOpenContinuation = continuation
+          return true
+        }
+        if !shouldSuspend {
+          continuation.resume(returning: .failed(reason: "test wait timed out"))
         }
       }
     }
@@ -44,12 +53,22 @@ final class TestAppRuntime: @unchecked Sendable, AppRuntime {
   }
 
   func waitForPendingOpen() async -> Bool {
-    for _ in 0..<100 {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while clock.now < deadline {
       if lock.withLock({ pendingOpenContinuation != nil }) {
         return true
       }
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(2))
     }
+
+    let continuation = lock.withLock { () -> CheckedContinuation<OpenAppResult, Never>? in
+      shouldCancelPendingOpen = true
+      let continuation = pendingOpenContinuation
+      pendingOpenContinuation = nil
+      return continuation
+    }
+    continuation?.resume(returning: .failed(reason: "test wait timed out"))
     return false
   }
 
@@ -70,7 +89,7 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
   private var newWindowSuccess = true
   private var moveSuccess = true
   private var launchLog: [String] = []
-  private var activatedBundleIDLog: [String] = []
+  private var activatedProcessIDLog: [pid_t] = []
   private var newWindowRequestLog: [String] = []
   private var moveRequestLog: [[CGWindowID]] = []
 
@@ -146,9 +165,9 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
     lock.withLock { appsOnCurrentSpace.contains(processID) }
   }
 
-  func activateApplication(bundleIdentifier: String) async -> Bool {
+  func activateApplication(processID: pid_t) async -> Bool {
     lock.withLock {
-      activatedBundleIDLog.append(bundleIdentifier)
+      activatedProcessIDLog.append(processID)
       return activationSuccess
     }
   }
@@ -194,8 +213,8 @@ final class TestMacOSAppRuntimeSystem: @unchecked Sendable, MacOSAppRuntimeSyste
     lock.withLock { launchLog }
   }
 
-  func activatedBundleIDs() -> [String] {
-    lock.withLock { activatedBundleIDLog }
+  func activatedProcessIDs() -> [pid_t] {
+    lock.withLock { activatedProcessIDLog }
   }
 
   func newWindowRequests() -> [String] {
@@ -243,7 +262,6 @@ func makeCompiledBinding(
   let binding = try makeBinding(key: key, mods: mods, bundleID: bundleID, mode: mode)
   return CompiledAppBinding(
     binding: binding,
-    shortcut: try BindingCompiler.compileShortcut(binding.shortcut),
     identity: makeIdentity(bundleID: bundleID)
   )
 }

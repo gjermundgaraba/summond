@@ -72,8 +72,8 @@ anywhere, and it makes no network requests for its core behavior. Only matching
 shortcuts are consumed; non-matching key events pass through unchanged. Normal
 logs record operational events; verbose logging (optional) adds more detail for
 debugging and may include shortcut-related information in the unified system
-log. Configuration is stored locally in the shared UserDefaults suite
-`net.garaba.summond.shared`.
+log. Configuration is stored locally at
+`~/Library/Application Support/Summond/configuration.json`.
 
 ## Configure Shortcuts
 
@@ -210,8 +210,8 @@ make lint
 Create local release artifacts:
 
 ```bash
-TEAM_ID=TEAMID \
-SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" \
+TEAM_ID=ABCDEFGHIJ \
+SIGNING_IDENTITY="Apple Development: Your Name (ABCDEFGHIJ)" \
 make release-local
 ```
 
@@ -225,9 +225,11 @@ and team of an existing `/Applications/Summond.app`. For a first install, pass
 Create Developer ID artifacts and submit them for notarization:
 
 ```bash
-TEAM_ID=TEAMID \
+TEAM_ID=ABCDEFGHIJ \
 NOTARY_PROFILE=summond-notary \
-SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+MARKETING_VERSION=1.1 \
+CURRENT_PROJECT_VERSION=2 \
+SIGNING_IDENTITY="Developer ID Application: Your Name (ABCDEFGHIJ)" \
 make release
 ```
 

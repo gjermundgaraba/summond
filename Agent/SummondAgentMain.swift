@@ -38,7 +38,10 @@ struct SummondAgentMain {
     )
     launchHistoryDefaults.set(launchHistory, forKey: launchHistoryKey)
     // This must reach disk before a crashing agent can be relaunched.
-    launchHistoryDefaults.synchronize()
+    if !CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) {
+      SummondLoggers.agent.fault(
+        "failed to persist launch history; continuing with in-memory restart protection")
+    }
     if !throttle.shouldInstallTap(launches: launchHistory, now: now) {
       SummondLoggers.agent.fault(
         """
@@ -48,24 +51,21 @@ struct SummondAgentMain {
       )
     }
 
-    guard let store = UserDefaultsConfigurationStore() else {
-      SummondLoggers.agent.fault("failed to create configuration store")
-      exit(1)
-    }
-
     let verboseLogging = VerboseLoggingState()
     let runtime = MacOSAppRuntime(verboseLogging: verboseLogging)
     let supervisor = AgentSupervisor(
-      store: store,
+      store: FileConfigurationStore(),
       appResolver: InstalledAppResolver(),
       engine: KeyEventEngine(runtime: runtime, verboseLogging: verboseLogging),
       restartThrottle: throttle,
       launchHistory: launchHistory
     )
+    supervisor.loadConfiguration()
     let listener = AgentXPCListener(supervisor: supervisor)
     listener.start()
-
-    _ = supervisor.reloadConfiguration()
+    Task { @MainActor in
+      _ = await supervisor.status()
+    }
     RunLoop.main.run()
   }
 }

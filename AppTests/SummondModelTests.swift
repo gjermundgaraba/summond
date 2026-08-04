@@ -57,7 +57,7 @@ struct SummondModelTests {
 
   @Test("Adds, edits, and deletes through one persistence path")
   func addEditDelete() async throws {
-    let store = MockConfigurationStore(loadResult: .fresh(.empty))
+    let store = MockConfigurationStore()
     let agent = MockAgentClient()
     let model = makeModel(store: store, agentClient: agent)
 
@@ -92,7 +92,7 @@ struct SummondModelTests {
       target: try AppTarget(bundleID: "com.apple.Safari", mode: .launch)
     )
     let store = MockConfigurationStore(
-      loadResult: .loaded(SummondConfiguration(bindings: [existing]))
+      configuration: SummondConfiguration(bindings: [existing])
     )
     let model = makeModel(store: store)
 
@@ -111,7 +111,6 @@ struct SummondModelTests {
   @Test("Store failure leaves configuration unchanged")
   func saveFailurePreservesConfiguration() async {
     let store = MockConfigurationStore(
-      loadResult: .fresh(.empty),
       saveError: MockError.saveFailed
     )
     let model = makeModel(store: store)
@@ -121,6 +120,31 @@ struct SummondModelTests {
     #expect(result == .failed(MockError.saveFailed.localizedDescription))
     #expect(model.configuration.bindings.isEmpty)
     #expect(model.configurationError == MockError.saveFailed.localizedDescription)
+  }
+
+  @Test("Corruption discovered during save recovers the configuration still in memory")
+  func saveDiscoveredCorruption() async throws {
+    let corruption = ConfigurationCorruption.undecodable("changed on disk")
+    let existing = SummondConfiguration(
+      bindings: [
+        StoredBinding(
+          shortcut: Shortcut(key: "f5", mods: ["cmd"]),
+          target: try AppTarget(bundleID: "com.apple.Safari", mode: .launch)
+        )
+      ])
+    let store = MockConfigurationStore(configuration: existing, saveError: corruption)
+    let model = makeModel(store: store)
+
+    #expect(await model.setVerboseLogging(true) == .failed(corruption.localizedDescription))
+    #expect(model.loadState == .corrupt(corruption))
+    #expect(model.canRecoverCorruptConfiguration)
+    #expect(
+      model.health
+        == .degraded(.configurationCorrupt(details: corruption.localizedDescription)))
+
+    #expect(await model.recoverCorruptConfiguration() == .saved)
+    #expect(model.configuration == existing)
+    #expect(store.replacedConfigurations == [existing])
   }
 
   @Test("Reload failure keeps the saved configuration and degrades health")
@@ -155,16 +179,18 @@ struct SummondModelTests {
     #expect(model.health == .ready(activeShortcuts: 7))
   }
 
-  @Test("Corrupt reset writes an empty valid configuration")
-  func corruptReset() async {
-    let store = MockConfigurationStore(loadResult: .corrupt(.undecodable("bad json")))
+  @Test("Startup corruption recovers to the empty configuration shown in the app")
+  func startupCorruptionRecovery() async {
+    let store = MockConfigurationStore(
+      loadError: ConfigurationCorruption.undecodable("bad json")
+    )
     let model = makeModel(store: store)
 
     guard case .corrupt = model.loadState else {
       Issue.record("Expected corrupt load state")
       return
     }
-    #expect(model.canResetCorruptConfiguration)
+    #expect(model.canRecoverCorruptConfiguration)
     #expect(
       model.health
         == .degraded(
@@ -172,23 +198,15 @@ struct SummondModelTests {
             details: "Configuration data could not be decoded: bad json"
           )))
 
-    #expect(await model.resetCorruptConfiguration() == .saved)
-    #expect(store.savedConfigurations == [.empty])
+    #expect(await model.recoverCorruptConfiguration() == .saved)
+    #expect(store.replacedConfigurations == [.empty])
     #expect(model.configuration == .empty)
     #expect(model.loadState == .loaded)
   }
 
-  @Test("Newer configuration schemas cannot be reset")
-  func newerSchemaCannotBeReset() {
-    let store = MockConfigurationStore(loadResult: .corrupt(.unsupportedSchemaVersion(2)))
-    let model = makeModel(store: store)
-
-    #expect(!model.canResetCorruptConfiguration)
-  }
-
   @Test("Verbose logging uses the same persistence path")
   func verboseLogging() async {
-    let store = MockConfigurationStore(loadResult: .fresh(.empty))
+    let store = MockConfigurationStore()
     let model = makeModel(store: store)
 
     #expect(await model.setVerboseLogging(true) == .saved)
@@ -198,19 +216,68 @@ struct SummondModelTests {
 
   @Test("Unavailable durable storage blocks mutations")
   func permanentStorageError() async {
-    let message = "Changes cannot be saved between launches."
-    let model = SummondModel(
-      storage: .unavailable(message),
-      agentClient: MockAgentClient(),
-      agentService: StubLoginItemService(status: .enabled),
-      statusItemService: StubLoginItemService(status: .notRegistered),
-      appCatalog: MockAppCatalog()
-    )
+    let message = MockError.loadFailed.localizedDescription
+    let model = makeModel(store: MockConfigurationStore(loadError: MockError.loadFailed))
 
     #expect(await model.setVerboseLogging(true) == .failed(message))
     #expect(!model.configuration.verboseLogging)
     #expect(model.loadState == .unavailable(message))
     #expect(model.health == .degraded(.configurationUnavailable(details: message)))
+  }
+
+  @Test("Refresh retries the agent reload after storage recovers")
+  func transientStorageError() async {
+    let recovered = SummondConfiguration(verboseLogging: true)
+    let store = MockConfigurationStore(loadError: MockError.loadFailed)
+    let agent = MockAgentClient(reloadError: MockError.reloadFailed)
+    let model = makeModel(store: store, agentClient: agent)
+    store.loadError = nil
+    store.configuration = recovered
+
+    await model.refresh()
+
+    #expect(model.configuration == recovered)
+    #expect(model.loadState == .loaded)
+    #expect(agent.reloadCount == 1)
+    #expect(model.reloadError == MockError.reloadFailed.localizedDescription)
+
+    agent.reloadError = nil
+    await model.refresh()
+
+    #expect(agent.reloadCount == 2)
+    #expect(model.reloadError == nil)
+    #expect(model.health == .ready(activeShortcuts: 0))
+  }
+
+  @Test("Permission requests keep their errors separate from service registration")
+  func permissionRequestError() async {
+    let operations = OperationRecorder()
+    let service = RecordingLoginItemService(
+      name: "agent",
+      status: .notRegistered,
+      operations: operations,
+      registerErrors: [MockError.registerFailed]
+    )
+    let agent = MockAgentClient(promptError: MockError.statusFailed)
+    let model = makeModel(agentClient: agent, agentService: service)
+
+    await model.enableService()
+    let serviceError = model.serviceError
+    await model.requestAccessibilitySetup()
+
+    #expect(model.permissionError == MockError.statusFailed.localizedDescription)
+    #expect(model.serviceError == serviceError)
+
+    await model.refresh()
+    #expect(model.permissionError == nil)
+    #expect(model.serviceError == serviceError)
+
+    agent.promptError = MockError.statusFailed
+    await model.requestAccessibilitySetup()
+    agent.promptError = nil
+    await model.requestInputMonitoringSetup()
+    #expect(model.permissionError == nil)
+    #expect(model.serviceError == serviceError)
   }
 
   @Test("Cancelled refresh preserves the last verified status")
@@ -406,35 +473,61 @@ struct SummondModelTests {
   @Test("Saved data cleanup covers every Summond preferences domain")
   func savedDataCleanupDomains() {
     #expect(
-      Set(UserDefaultsSavedDataRemover.summondDomainNames) == [
+      Set(LocalSavedDataRemover.summondDomainNames) == [
         SummondBundleIdentifiers.app,
-        UserDefaultsConfigurationStore.defaultSuiteName,
         SummondBundleIdentifiers.agent,
         SummondBundleIdentifiers.statusItem,
       ])
   }
 
-  @Test("Saved data remover clears each configured preferences domain")
-  func savedDataRemoverClearsDomains() {
+  @Test("Saved data remover clears preferences and the configuration file")
+  func savedDataRemoverClearsDomainsAndConfiguration() throws {
     let domainNames = [
       "net.garaba.summond.tests.uninstall.\(UUID().uuidString)",
       "net.garaba.summond.tests.uninstall.\(UUID().uuidString)",
     ]
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let configurationURL = directory.appendingPathComponent("configuration.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("saved".utf8).write(to: configurationURL)
     defer {
       for domainName in domainNames {
         UserDefaults.standard.removePersistentDomain(forName: domainName)
       }
+      try? FileManager.default.removeItem(at: directory)
     }
     for domainName in domainNames {
       UserDefaults.standard.setPersistentDomain(["value": "saved"], forName: domainName)
       #expect(UserDefaults.standard.persistentDomain(forName: domainName) != nil)
     }
 
-    UserDefaultsSavedDataRemover(domainNames: domainNames).removeAllSavedData()
+    try LocalSavedDataRemover(
+      domainNames: domainNames,
+      configurationDirectoryURL: directory
+    ).removeAllSavedData()
 
     for domainName in domainNames {
       #expect(UserDefaults.standard.persistentDomain(forName: domainName) == nil)
     }
+    #expect(!FileManager.default.fileExists(atPath: configurationURL.path))
+  }
+
+  @Test("Saved data deletion failure stops uninstall preparation")
+  func savedDataDeletionFailureStopsUninstall() async {
+    let savedData = MockSavedDataRemover(error: MockError.saveFailed)
+    let model = makeModel(
+      agentService: StubLoginItemService(status: .notRegistered),
+      statusItemService: StubLoginItemService(status: .notFound),
+      savedDataRemover: savedData
+    )
+
+    #expect(!(await model.prepareForUninstall(deleteSavedData: true)))
+    #expect(savedData.removeCalls == 1)
+    #expect(
+      model.uninstallPreparationError
+        == "Saved shortcuts and settings could not be deleted: The configuration could not be saved."
+    )
   }
 
   @Test("Agent unregister failure stops uninstall preparation immediately")
@@ -537,7 +630,7 @@ struct SummondModelTests {
   }
 
   private func makeModel(
-    store: MockConfigurationStore = MockConfigurationStore(loadResult: .fresh(.empty)),
+    store: MockConfigurationStore = MockConfigurationStore(),
     agentClient: any AgentClientProtocol = MockAgentClient(),
     agentService: any LoginItemServiceManaging = StubLoginItemService(status: .enabled),
     statusItemService: any LoginItemServiceManaging = StubLoginItemService(status: .notRegistered),
@@ -546,7 +639,7 @@ struct SummondModelTests {
     isStatusItemRunning: @escaping @Sendable () -> Bool = { false }
   ) -> SummondModel {
     SummondModel(
-      storage: .available(store),
+      storage: store,
       agentClient: agentClient,
       agentService: agentService,
       statusItemService: statusItemService,
@@ -581,24 +674,41 @@ struct SummondModelTests {
 }
 
 private final class MockConfigurationStore: @unchecked Sendable, ConfigurationStore {
-  var loadResult: ConfigurationLoadResult
+  var configuration: SummondConfiguration?
+  var loadError: Error?
   var saveError: Error?
   private(set) var savedConfigurations: [SummondConfiguration] = []
+  private(set) var replacedConfigurations: [SummondConfiguration] = []
 
-  init(loadResult: ConfigurationLoadResult, saveError: Error? = nil) {
-    self.loadResult = loadResult
+  init(
+    configuration: SummondConfiguration? = nil,
+    loadError: Error? = nil,
+    saveError: Error? = nil
+  ) {
+    self.configuration = configuration
+    self.loadError = loadError
     self.saveError = saveError
   }
 
-  func load() -> ConfigurationLoadResult {
-    loadResult
+  func load() throws -> SummondConfiguration? {
+    if let loadError {
+      throw loadError
+    }
+    return configuration
   }
 
   func save(_ configuration: SummondConfiguration) throws {
     if let saveError {
       throw saveError
     }
+    self.configuration = configuration
     savedConfigurations.append(configuration)
+  }
+
+  func replace(with configuration: SummondConfiguration) {
+    self.configuration = configuration
+    loadError = nil
+    replacedConfigurations.append(configuration)
   }
 }
 
@@ -607,18 +717,21 @@ private final class MockAgentClient: @unchecked Sendable, AgentClientProtocol {
   var reloadStatus: AgentStatus
   var statusError: Error?
   var reloadError: Error?
+  var promptError: Error?
   private(set) var reloadCount = 0
 
   init(
     status: AgentStatus = healthyStatus(),
     reloadStatus: AgentStatus = healthyStatus(),
     statusError: Error? = nil,
-    reloadError: Error? = nil
+    reloadError: Error? = nil,
+    promptError: Error? = nil
   ) {
     self.statusValue = status
     self.reloadStatus = reloadStatus
     self.statusError = statusError
     self.reloadError = reloadError
+    self.promptError = promptError
   }
 
   func status() async throws -> AgentStatus {
@@ -636,15 +749,25 @@ private final class MockAgentClient: @unchecked Sendable, AgentClientProtocol {
     return reloadStatus
   }
 
-  func requestAccessibilityPrompt() {}
-  func requestInputMonitoringPrompt() {}
+  func requestAccessibilityPrompt() async throws {
+    if let promptError { throw promptError }
+  }
+
+  func requestInputMonitoringPrompt() async throws {
+    if let promptError { throw promptError }
+  }
 }
 
 private actor CancellableAgentClient: AgentClientProtocol {
   private var statusCalls = 0
+  private var secondCallWaiter: CheckedContinuation<Void, Never>?
 
   func status() async throws -> AgentStatus {
     statusCalls += 1
+    if statusCalls == 2 {
+      secondCallWaiter?.resume()
+      secondCallWaiter = nil
+    }
     if statusCalls > 1 {
       try await Task.sleep(for: .seconds(30))
     }
@@ -652,22 +775,26 @@ private actor CancellableAgentClient: AgentClientProtocol {
   }
 
   func reloadConfiguration() async throws -> AgentStatus { healthyStatus() }
-  nonisolated func requestAccessibilityPrompt() {}
-  nonisolated func requestInputMonitoringPrompt() {}
+  func requestAccessibilityPrompt() async throws {}
+  func requestInputMonitoringPrompt() async throws {}
 
   func waitUntilSecondCallStarts() async {
-    while statusCalls < 2 {
-      await Task.yield()
+    guard statusCalls < 2 else { return }
+    await withCheckedContinuation { continuation in
+      secondCallWaiter = continuation
     }
   }
 }
 
 private actor RacingAgentClient: AgentClientProtocol {
   private var statusContinuation: CheckedContinuation<AgentStatus, Never>?
+  private var statusStartWaiter: CheckedContinuation<Void, Never>?
 
   func status() async -> AgentStatus {
     await withCheckedContinuation { continuation in
       statusContinuation = continuation
+      statusStartWaiter?.resume()
+      statusStartWaiter = nil
     }
   }
 
@@ -675,12 +802,13 @@ private actor RacingAgentClient: AgentClientProtocol {
     healthyStatus(bindingCount: 7)
   }
 
-  nonisolated func requestAccessibilityPrompt() {}
-  nonisolated func requestInputMonitoringPrompt() {}
+  func requestAccessibilityPrompt() async throws {}
+  func requestInputMonitoringPrompt() async throws {}
 
   func waitUntilStatusStarts() async {
-    while statusContinuation == nil {
-      await Task.yield()
+    guard statusContinuation == nil else { return }
+    await withCheckedContinuation { continuation in
+      statusStartWaiter = continuation
     }
   }
 
@@ -845,9 +973,15 @@ private final class SuspendingUnregisterLoginItemService: LoginItemServiceManagi
 private final class MockSavedDataRemover: SavedDataRemoving, @unchecked Sendable {
   private let lock = NSLock()
   private var count = 0
+  private let error: Error?
 
-  func removeAllSavedData() {
+  init(error: Error? = nil) {
+    self.error = error
+  }
+
+  func removeAllSavedData() throws {
     lock.withLock { count += 1 }
+    if let error { throw error }
   }
 
   var removeCalls: Int { lock.withLock { count } }
@@ -878,6 +1012,7 @@ private struct MockAppCatalog: AppDisplayResolving {
 }
 
 private enum MockError: LocalizedError {
+  case loadFailed
   case saveFailed
   case reloadFailed
   case statusFailed
@@ -886,6 +1021,8 @@ private enum MockError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
+    case .loadFailed:
+      "The configuration could not be loaded."
     case .saveFailed:
       "The configuration could not be saved."
     case .reloadFailed:

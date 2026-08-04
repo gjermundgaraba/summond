@@ -18,14 +18,7 @@ public struct CompiledShortcut: Sendable, Equatable, Hashable {
 
 public struct CompiledAppBinding: Sendable, Equatable {
   public let binding: StoredBinding
-  public let shortcut: CompiledShortcut
   public let identity: AppIdentity
-
-  public init(binding: StoredBinding, shortcut: CompiledShortcut, identity: AppIdentity) {
-    self.binding = binding
-    self.shortcut = shortcut
-    self.identity = identity
-  }
 }
 
 public struct BindingSnapshot: Sendable {
@@ -86,6 +79,7 @@ public enum BindingCompiler {
     var compiledBindings: [CompiledShortcut: CompiledAppBinding] = [:]
     var seenShortcuts: Set<CompiledShortcut> = []
     var unresolvedBundleIDs: [String] = []
+    var seenUnresolvedBundleIDs: Set<String> = []
 
     for (offset, binding) in bindings.enumerated() {
       let index = offset + 1
@@ -104,13 +98,14 @@ public enum BindingCompiler {
       }
 
       guard let identity = appResolver.resolve(bundleID: binding.target.bundleID) else {
-        unresolvedBundleIDs.append(binding.target.bundleID)
+        if seenUnresolvedBundleIDs.insert(binding.target.bundleID).inserted {
+          unresolvedBundleIDs.append(binding.target.bundleID)
+        }
         continue
       }
 
       compiledBindings[shortcut] = CompiledAppBinding(
         binding: binding,
-        shortcut: shortcut,
         identity: identity
       )
     }

@@ -230,16 +230,37 @@ struct SpaceMover: Sendable {
     slide: Int,
     name symbolName: String
   ) -> UnsafeMutableRawPointer? {
+    let header64 = header.withMemoryRebound(to: mach_header_64.self, capacity: 1) { $0.pointee }
+    guard header64.magic == MH_MAGIC_64 else {
+      return nil
+    }
+
     var linkeditSegment: segment_command_64?
     var symtabCommand: symtab_command?
 
-    let commandCount = header.withMemoryRebound(to: mach_header_64.self, capacity: 1) {
-      $0.pointee.ncmds
-    }
-    var cursor = UnsafeRawPointer(header) + MemoryLayout<mach_header_64>.size
-    for _ in 0..<commandCount {
+    let commandsStart = UnsafeRawPointer(header) + MemoryLayout<mach_header_64>.size
+    var commandOffset = 0
+    for _ in 0..<header64.ncmds {
+      guard
+        commandOffset <= Int(header64.sizeofcmds),
+        Int(header64.sizeofcmds) - commandOffset >= MemoryLayout<load_command>.size
+      else {
+        return nil
+      }
+
+      let cursor = commandsStart + commandOffset
       let command = cursor.assumingMemoryBound(to: load_command.self).pointee
+      guard
+        command.cmdsize >= UInt32(MemoryLayout<load_command>.size),
+        Int(command.cmdsize) <= Int(header64.sizeofcmds) - commandOffset
+      else {
+        return nil
+      }
+
       if command.cmd == LC_SEGMENT_64 {
+        guard command.cmdsize >= UInt32(MemoryLayout<segment_command_64>.size) else {
+          return nil
+        }
         let segment = cursor.assumingMemoryBound(to: segment_command_64.self).pointee
         let segmentName = withUnsafeBytes(of: segment.segname) { raw in
           String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
@@ -248,23 +269,45 @@ struct SpaceMover: Sendable {
           linkeditSegment = segment
         }
       } else if command.cmd == LC_SYMTAB {
+        guard command.cmdsize >= UInt32(MemoryLayout<symtab_command>.size) else {
+          return nil
+        }
         symtabCommand = cursor.assumingMemoryBound(to: symtab_command.self).pointee
       }
 
-      cursor += Int(command.cmdsize)
+      commandOffset += Int(command.cmdsize)
     }
 
     guard let linkeditSegment, let symtabCommand else {
       return nil
     }
 
-    let linkeditBase =
-      UInt64(bitPattern: Int64(slide)) &+ linkeditSegment.vmaddr &- linkeditSegment.fileoff
+    let (linkeditFileEnd, linkeditFileOverflow) = linkeditSegment.fileoff.addingReportingOverflow(
+      linkeditSegment.filesize)
+    let (symbolTableSize, symbolTableSizeOverflow) = UInt64(symtabCommand.nsyms)
+      .multipliedReportingOverflow(by: UInt64(MemoryLayout<nlist_64>.size))
+    let (symbolTableEnd, symbolTableOverflow) = UInt64(symtabCommand.symoff)
+      .addingReportingOverflow(symbolTableSize)
+    let (stringTableEnd, stringTableOverflow) = UInt64(symtabCommand.stroff)
+      .addingReportingOverflow(UInt64(symtabCommand.strsize))
+    let (symbolTableOffset, symbolTableOffsetUnderflow) = UInt64(symtabCommand.symoff)
+      .subtractingReportingOverflow(linkeditSegment.fileoff)
+    let (stringTableOffset, stringTableOffsetUnderflow) = UInt64(symtabCommand.stroff)
+      .subtractingReportingOverflow(linkeditSegment.fileoff)
     guard
-      let stringTable = UnsafeRawPointer(
-        bitPattern: UInt(linkeditBase &+ UInt64(symtabCommand.stroff))),
-      let symbolTable = UnsafeRawPointer(
-        bitPattern: UInt(linkeditBase &+ UInt64(symtabCommand.symoff)))
+      !linkeditFileOverflow,
+      !symbolTableSizeOverflow,
+      !symbolTableOverflow,
+      !stringTableOverflow,
+      !symbolTableOffsetUnderflow,
+      symbolTableEnd <= linkeditFileEnd,
+      !stringTableOffsetUnderflow,
+      stringTableEnd <= linkeditFileEnd,
+      let linkeditAddress = slidAddress(linkeditSegment.vmaddr, slide: slide),
+      let symbolTableAddress = adding(linkeditAddress, symbolTableOffset),
+      let stringTableAddress = adding(linkeditAddress, stringTableOffset),
+      let symbolTable = UnsafeRawPointer(bitPattern: symbolTableAddress),
+      let stringTable = UnsafeRawPointer(bitPattern: stringTableAddress)
     else {
       return nil
     }
@@ -272,14 +315,58 @@ struct SpaceMover: Sendable {
     for index in 0..<Int(symtabCommand.nsyms) {
       let entry = (symbolTable + index * MemoryLayout<nlist_64>.size)
         .assumingMemoryBound(to: nlist_64.self).pointee
+      guard
+        Self.isCallableSymbol(
+          type: entry.n_type,
+          section: entry.n_sect,
+          value: entry.n_value
+        )
+      else {
+        continue
+      }
+      let nameOffset = Int(entry.n_un.n_strx)
+      guard nameOffset < Int(symtabCommand.strsize) else {
+        continue
+      }
+      let nameStart = stringTable + nameOffset
+      let bytesRemaining = Int(symtabCommand.strsize) - nameOffset
+      guard let terminator = memchr(nameStart, 0, bytesRemaining) else {
+        continue
+      }
+      let nameLength = nameStart.distance(to: UnsafeRawPointer(terminator))
       let entryName = String(
-        cString: (stringTable + Int(entry.n_un.n_strx)).assumingMemoryBound(to: CChar.self))
+        decoding: UnsafeRawBufferPointer(start: nameStart, count: nameLength), as: UTF8.self)
       if entryName == symbolName {
-        return UnsafeMutableRawPointer(
-          bitPattern: UInt(entry.n_value) &+ UInt(bitPattern: slide))
+        guard let address = slidAddress(entry.n_value, slide: slide) else {
+          return nil
+        }
+        return UnsafeMutableRawPointer(bitPattern: address)
       }
     }
 
     return nil
+  }
+
+  static func isCallableSymbol(type: UInt8, section: UInt8, value: UInt64) -> Bool {
+    type & UInt8(N_STAB) == 0
+      && type & UInt8(N_TYPE) == UInt8(N_SECT)
+      && section != UInt8(NO_SECT)
+      && value != 0
+  }
+
+  private static func slidAddress(_ address: UInt64, slide: Int) -> UInt? {
+    let (value, overflow) = Int64(bitPattern: address).addingReportingOverflow(Int64(slide))
+    guard !overflow, value > 0 else {
+      return nil
+    }
+    return UInt(value)
+  }
+
+  private static func adding(_ address: UInt, _ offset: UInt64) -> UInt? {
+    guard let offset = UInt(exactly: offset) else {
+      return nil
+    }
+    let (value, overflow) = address.addingReportingOverflow(offset)
+    return overflow ? nil : value
   }
 }

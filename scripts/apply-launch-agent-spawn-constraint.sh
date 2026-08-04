@@ -15,6 +15,10 @@ team_id="$2"
 signing_identifier="${3:-net.garaba.summond.agent}"
 
 [[ -n "$team_id" ]] || exit 0
+[[ "$team_id" =~ ^[A-Z0-9]{10}$ ]] || {
+  printf 'error: TEAM_ID must be 10 uppercase letters or digits\n' >&2
+  exit 64
+}
 [[ -f "$agent_plist" ]] || {
   printf 'error: LaunchAgent plist not found at %s\n' "$agent_plist" >&2
   exit 1

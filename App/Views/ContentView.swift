@@ -10,7 +10,7 @@ struct ContentView: View {
   @State private var selection: StoredBinding.ID?
   @State private var presentedSheet: MainSheet?
   @State private var pendingDeletion: StoredBinding?
-  @State private var confirmsConfigurationReset = false
+  @State private var confirmsConfigurationRecovery = false
   @State private var addShortcutAfterSetup = false
 
   var body: some View {
@@ -67,15 +67,15 @@ struct ContentView: View {
       Text("\(ShortcutFormatter.symbols(for: shortcut.shortcut)) for \(app) will be removed.")
     }
     .confirmationDialog(
-      "Reset Configuration?",
-      isPresented: $confirmsConfigurationReset
+      "Recover Configuration?",
+      isPresented: $confirmsConfigurationRecovery
     ) {
-      Button("Reset to Empty Configuration", role: .destructive) {
-        Task { await model.resetCorruptConfiguration() }
+      Button("Replace Unreadable File", role: .destructive) {
+        Task { await model.recoverCorruptConfiguration() }
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("This replaces the unreadable configuration with an empty one.")
+      Text("This replaces unreadable saved data with the configuration currently shown.")
     }
     .task {
       if !hasPresentedInitialSetup {
@@ -110,9 +110,9 @@ struct ContentView: View {
         color: .orange,
         title: "Configuration Could Not Be Loaded",
         message: details ?? "The saved configuration could not be read.",
-        actionTitle: model.canResetCorruptConfiguration ? "Reset" : nil,
-        actionIdentifier: "configuration.resetButton",
-        action: { confirmsConfigurationReset = true }
+        actionTitle: model.canRecoverCorruptConfiguration ? "Recover" : nil,
+        actionIdentifier: "configuration.recoverButton",
+        action: { confirmsConfigurationRecovery = true }
       )
       .accessibilityIdentifier("configuration.notice")
       .padding([.horizontal, .top], 16)

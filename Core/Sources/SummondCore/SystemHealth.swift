@@ -60,6 +60,11 @@ public enum SystemHealth: Equatable, Sendable {
     }
 
     switch agentStatus.configState {
+    case .unavailable:
+      return .degraded(
+        .configurationUnavailable(
+          details: agentStatus.lastReloadError ?? "The agent could not read the configuration file."
+        ))
     case .corrupt:
       return .degraded(.configurationCorrupt(details: agentStatus.lastReloadError))
     case .invalid:

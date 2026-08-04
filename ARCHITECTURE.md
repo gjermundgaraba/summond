@@ -26,8 +26,8 @@ moves them onto the current Space.
                 │ engine, app opening      │
                 └────────────┬─────────────┘
                              ▼
-                UserDefaults suite
-                net.garaba.summond.shared
+                Application Support file
+                Summond/configuration.json
 ```
 
 ## Components
@@ -60,7 +60,7 @@ cdhash instead of sealing it as a flat resource tree. The LaunchAgent plist's
 `Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent`.
 
 - Runs in the user's Aqua session.
-- Loads configuration from the shared defaults suite.
+- Loads configuration from the shared Application Support file.
 - Installs a global `CGEvent` tap after Accessibility and Input Monitoring
   permissions are granted.
 - Exports XPC status, reload, Accessibility-prompt, and Input Monitoring-prompt
@@ -82,7 +82,7 @@ Menu bar login item embedded at
 ### `SummondCore`
 
 SwiftPM library shared by all targets. It contains the configuration model,
-JSON defaults store, binding compiler, XPC protocol/codecs, status mapping,
+JSON file store, binding compiler, XPC protocol/codecs, status mapping,
 event engine, app-opening runtime, Dock menu integration, and Space-moving
 runtime.
 
@@ -91,7 +91,7 @@ runtime.
 ```
 Preferences draft
   → validate shortcut, duplicate shortcut, and non-empty bundle ID
-  → save JSON data to UserDefaults suite net.garaba.summond.shared
+  → atomically save JSON to ~/Library/Application Support/Summond/configuration.json
   → XPC reloadConfiguration()
   → agent lenient compile
       resolved apps become active bindings
@@ -100,8 +100,9 @@ Preferences draft
   → lock-protected snapshot replacement in KeyEventEngine
 ```
 
-The UI validates before save. The agent validates again when it reloads because
-the current machine's installed apps can change after the UI saves.
+The UI validates before save. The agent validates again because the shared file
+can be edited or replaced independently. Application resolution is separate:
+installed apps can change after the UI saves.
 
 Unresolved bundle identifiers are degraded state, not corruption. The agent
 skips those bindings, reports them in `AgentStatus.unresolvedBundleIDs`, and
@@ -151,7 +152,8 @@ require disabling SIP.
   enough to copy out the snapshot. Verbose-logging state is shared atomically
   with the runtime collaborators that emit diagnostics.
 - Engine methods are thread-safe. XPC calls enter on Foundation-managed queues
-  and hop to `@MainActor` for the supervisor.
+  and hop to `@MainActor` for the supervisor. Status replies await any in-flight
+  event-tap startup attempt without blocking the main actor.
 - `AppOpener` is an actor that deduplicates in-flight opens per bundle ID.
 - Storage wrappers that can be called from multiple contexts use `NSLock`.
 - Slow app-opening work is async; the key-event hot path stays synchronous.
@@ -162,9 +164,11 @@ require disabling SIP.
   installation. The agent stays alive, polls trust state, and starts the engine
   when both permissions are present.
 - Event tap creation failure is logged and surfaced through status.
-- Corrupt stored JSON, unsupported schema versions, or structurally invalid
-  configuration are reported as configuration problems.
-- A hard invalid reload preserves the previous active snapshot.
+- Undecodable JSON is reported as corrupt, structurally invalid configuration as
+  invalid, and file-access failures as unavailable. All three preserve the
+  previous active snapshot.
+- Launch-history persistence failure is logged; the current launch still uses
+  its in-memory restart history and remains operational.
 - Fresh storage is not an error; the default configuration is empty.
 - Missing target apps produce `unresolvedBundleIDs`; resolvable bindings remain
   active.
@@ -179,22 +183,19 @@ require disabling SIP.
 
 ## Storage Format
 
-Configuration is JSON encoded `SummondConfiguration` stored as `Data` in:
-
-- suite: `net.garaba.summond.shared`
-- key: `configuration`
+Configuration is JSON encoded `SummondConfiguration` stored at
+`~/Library/Application Support/Summond/configuration.json`.
 
 Top-level fields:
 
-- `schemaVersion`
 - `bindings`
 - `verboseLogging`
 
 Each binding stores a stable UUID, a shortcut (`key`, `mods`), and a target
-(`bundleID`, `mode`). The codec distinguishes fresh storage from corrupt data:
-missing data returns `.fresh(.empty)`, while undecodable data, unsupported schema
-versions, and invalid data return `.corrupt(...)`. Saves refuse to overwrite an
-existing configuration with an unsupported schema version.
+(`bundleID`, `mode`). A missing file is a fresh empty configuration. Ordinary
+saves refuse to overwrite unreadable, invalid, or unavailable configuration.
+Explicit recovery replaces unreadable saved data with the configuration the app
+currently shows.
 
 ## XPC Boundary
 
@@ -268,12 +269,13 @@ Signing order is innermost first:
 3. `Summond.app`
 
 Every signing command uses `--options runtime --force`. Release and local
-signing use `--timestamp`; smoke uses `--timestamp=none`. Release mode requires
-a Developer ID Application identity, a team ID, and a notarytool keychain
-profile; it zips with `ditto --keepParent`, submits with `notarytool --wait`,
-staples, validates, and reruns verification. Local mode signs with the provided
-identity, skips notarization, and treats trust-policy verification failures as
-warnings.
+signing use `--timestamp`; smoke uses `--timestamp=none`. Release mode runs the
+lint and unit-test gates, then requires a Developer ID Application identity, a
+team ID, marketing and build versions, and a notarytool keychain profile. It
+zips with `ditto --keepParent`, submits with `notarytool --wait`, staples,
+validates, and reruns verification. Local mode signs with the provided identity
+and skips notarization. Signature verification is always fatal; only the local
+Gatekeeper assessment may warn and continue.
 
 ## Testability
 
