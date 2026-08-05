@@ -36,21 +36,6 @@ struct SetupAssistantView: View {
           },
           accessibilityIdentifier: "setup.openAccessibilitySettingsButton"
         )
-        permissionRow(
-          title: "Input Monitoring",
-          explanation: "Allows Summond to receive your global shortcuts.",
-          systemImage: "keyboard.badge.eye",
-          isGranted: inputMonitoringGranted,
-          actionTitle: "Open Settings…",
-          action: {
-            startPermissionSetup(
-              pane: .inputMonitoring,
-              requestAgentPrompt: { Task { await model.requestInputMonitoringSetup() } },
-              fallback: model.openInputMonitoringSettings
-            )
-          },
-          accessibilityIdentifier: "setup.openInputMonitoringSettingsButton"
-        )
         if let error = model.permissionError {
           Text("Permission request failed: \(error)")
             .font(.callout)
@@ -107,7 +92,7 @@ struct SetupAssistantView: View {
         Text(
           setupRequirementsComplete
             ? "Summond has the macOS access it needs."
-            : "Complete these three macOS requirements to use global shortcuts."
+            : "Complete these two macOS requirements to use Summond."
         )
         .foregroundStyle(.secondary)
       }
@@ -198,15 +183,10 @@ struct SetupAssistantView: View {
     model.serviceStatus == .enabled
       && model.agentStatus != nil
       && accessibilityGranted
-      && inputMonitoringGranted
   }
 
   private var accessibilityGranted: Bool {
     model.agentStatus?.accessibilityGranted == true
-  }
-
-  private var inputMonitoringGranted: Bool {
-    model.agentStatus?.inputMonitoringGranted == true
   }
 
   private var backgroundServiceState: SetupChecklistState {

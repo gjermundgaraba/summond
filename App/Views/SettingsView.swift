@@ -158,14 +158,15 @@ struct SettingsView: View {
           LabeledContent("Version", value: status.agentVersion)
           LabeledContent(
             "Accessibility", value: status.accessibilityGranted ? "Granted" : "Missing")
-          LabeledContent(
-            "Input Monitoring", value: status.inputMonitoringGranted ? "Granted" : "Missing")
-          LabeledContent("Shortcut listener", value: status.tapActive ? "Active" : "Inactive")
+          LabeledContent("Shortcut listener", value: status.shortcutsActive ? "Active" : "Inactive")
           LabeledContent("Configuration", value: status.configState.settingsTitle)
           LabeledContent("Shortcuts", value: "\(status.bindingCount)")
 
-          if let reason = status.tapFailureReason {
-            LabeledContent("Listener issue", value: reason.settingsTitle)
+          if !status.failedShortcuts.isEmpty {
+            LabeledContent("Shortcuts not registered") {
+              Text(status.failedShortcuts.joined(separator: "\n"))
+                .textSelection(.enabled)
+            }
           }
 
           if !status.unresolvedBundleIDs.isEmpty {
@@ -274,8 +275,6 @@ extension SystemHealth {
         return "The background service could not be found."
       case .accessibilityPermission:
         return "Accessibility permission is required."
-      case .inputMonitoringPermission:
-        return "Input Monitoring permission is required."
       }
     case .degraded(let issue):
       switch issue {
@@ -291,9 +290,11 @@ extension SystemHealth {
         let count = bundleIDs.count
         let noun = count == 1 ? "application is" : "applications are"
         return "\(count) configured \(noun) not installed."
-      case .eventTapFailure(let reason):
-        return reason.settingsTitle
-      case .eventTapInactive:
+      case .shortcutRegistrationFailures(let shortcuts):
+        let count = shortcuts.count
+        let noun = count == 1 ? "shortcut" : "shortcuts"
+        return "\(count) \(noun) could not be registered with macOS."
+      case .shortcutListenerInactive:
         return "The global shortcut listener is inactive."
       case .reloadFailed(let details):
         return details
@@ -310,19 +311,6 @@ extension AgentConfigurationState {
     case .unavailable: "Unavailable"
     case .corrupt: "Corrupt"
     case .invalid: "Invalid"
-    }
-  }
-}
-
-extension EventTapFailureReason {
-  fileprivate var settingsTitle: String {
-    switch self {
-    case .accessibilityDenied: "Accessibility permission is missing."
-    case .inputMonitoringDenied: "Input Monitoring permission is missing."
-    case .installationFailed: "The shortcut listener could not start."
-    case .disabledByTimeout: "The shortcut listener timed out."
-    case .disabledByUserInput: "macOS disabled the shortcut listener."
-    case .restartLoopDetected: "The shortcut listener paused after repeated restarts."
     }
   }
 }

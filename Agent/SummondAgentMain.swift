@@ -21,51 +21,18 @@ struct SummondAgentMain {
     // element seeds the timeout for every AXUIElement the process creates.
     _ = AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axMessagingTimeoutSeconds)
 
-    // Crash-loop circuit breaker. launchd relaunches the agent on every
-    // unsuccessful exit (KeepAlive); if it is crash-looping, re-installing an
-    // active CGEvent tap each launch can wedge the keyboard. Record this launch;
-    // the supervisor consults the throttle live, so a tripped breaker defers the
-    // tap and then recovers on its own once the launch burst ages out.
-    let throttle = RestartThrottle()
-    // This is private operational state in the agent's own defaults domain, not
-    // the shared preferences suite read by the app.
-    let launchHistoryDefaults = UserDefaults.standard
-    let launchHistoryKey = "agent.launchHistory.v1"
-    let now = Date().timeIntervalSince1970
-    let launchHistory = throttle.record(
-      launchHistoryDefaults.array(forKey: launchHistoryKey) as? [Double] ?? [],
-      now: now
-    )
-    launchHistoryDefaults.set(launchHistory, forKey: launchHistoryKey)
-    // This must reach disk before a crashing agent can be relaunched.
-    if !CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) {
-      SummondLoggers.agent.fault(
-        "failed to persist launch history; continuing with in-memory restart protection")
-    }
-    if !throttle.shouldInstallTap(launches: launchHistory, now: now) {
-      SummondLoggers.agent.fault(
-        """
-        restart loop detected (\(throttle.launchCount(in: launchHistory, now: now), privacy: .public) \
-        launches in \(Int(throttle.windowSeconds), privacy: .public)s); deferring event tap until it cools
-        """
-      )
-    }
-
     let verboseLogging = VerboseLoggingState()
     let runtime = MacOSAppRuntime(verboseLogging: verboseLogging)
     let supervisor = AgentSupervisor(
       store: FileConfigurationStore(),
       appResolver: InstalledAppResolver(),
-      engine: KeyEventEngine(runtime: runtime, verboseLogging: verboseLogging),
-      restartThrottle: throttle,
-      launchHistory: launchHistory
+      engine: HotKeyEngine(runtime: runtime, verboseLogging: verboseLogging)
     )
-    supervisor.loadConfiguration()
+    supervisor.start()
     let listener = AgentXPCListener(supervisor: supervisor)
     listener.start()
-    Task { @MainActor in
-      _ = await supervisor.status()
-    }
-    RunLoop.main.run()
+    // NSApplication.run (not RunLoop.run) so the Carbon event dispatcher that
+    // delivers registered hot keys is serviced.
+    NSApplication.shared.run()
   }
 }

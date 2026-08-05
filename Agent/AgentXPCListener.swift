@@ -78,15 +78,6 @@ final class AgentXPCService: NSObject, SummondAgentXPC, @unchecked Sendable {
       reply.send(Data())
     }
   }
-
-  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void) {
-    let reply = XPCReply(reply)
-    let supervisor = supervisor
-    Task { @MainActor in
-      await supervisor.requestInputMonitoringPrompt()
-      reply.send(Data())
-    }
-  }
 }
 
 private struct XPCReply: @unchecked Sendable {

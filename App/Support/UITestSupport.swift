@@ -179,7 +179,6 @@
     }
 
     func requestAccessibilityPrompt() async throws {}
-    func requestInputMonitoringPrompt() async throws {}
 
     private func makeStatus() -> AgentStatus {
       let configState: AgentConfigurationState
@@ -208,8 +207,7 @@
       return AgentStatus(
         agentVersion: "uitest",
         accessibilityGranted: accessibilityGranted,
-        inputMonitoringGranted: true,
-        tapActive: accessibilityGranted,
+        shortcutsActive: true,
         configState: configState,
         bindingCount: bindingCount,
         lastReloadError: configurationError

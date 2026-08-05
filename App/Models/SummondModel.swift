@@ -486,10 +486,6 @@ final class SummondModel {
     await requestPermissionPrompt(agentClient.requestAccessibilityPrompt)
   }
 
-  func requestInputMonitoringSetup() async {
-    await requestPermissionPrompt(agentClient.requestInputMonitoringPrompt)
-  }
-
   func openLoginItemsSettings() {
     agentService.openSystemSettingsLoginItems()
   }
@@ -497,12 +493,6 @@ final class SummondModel {
   func openAccessibilitySettings() {
     openSystemSettings(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-    )
-  }
-
-  func openInputMonitoringSettings() {
-    openSystemSettings(
-      "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
     )
   }
 

@@ -4,7 +4,6 @@ public enum SetupRequirement: Equatable, Sendable {
   case backgroundServiceNotRegistered
   case backgroundServiceNotFound
   case accessibilityPermission
-  case inputMonitoringPermission
 }
 
 /// A runtime problem that prevents Summond from operating normally.
@@ -18,8 +17,8 @@ public enum SystemIssue: Equatable, Sendable {
   case configurationInvalid(details: String?)
   case reloadFailed(details: String)
   case unresolvedApplications(bundleIDs: [String])
-  case eventTapFailure(EventTapFailureReason)
-  case eventTapInactive
+  case shortcutRegistrationFailures(shortcuts: [String])
+  case shortcutListenerInactive
 }
 
 /// The canonical interpretation of service and agent runtime state.
@@ -55,10 +54,6 @@ public enum SystemHealth: Equatable, Sendable {
       return .setupRequired(.accessibilityPermission)
     }
 
-    guard agentStatus.inputMonitoringGranted else {
-      return .setupRequired(.inputMonitoringPermission)
-    }
-
     switch agentStatus.configState {
     case .unavailable:
       return .degraded(
@@ -79,12 +74,14 @@ public enum SystemHealth: Equatable, Sendable {
       )
     }
 
-    if let failure = agentStatus.tapFailureReason {
-      return .degraded(.eventTapFailure(failure))
+    guard agentStatus.shortcutsActive else {
+      return .degraded(.shortcutListenerInactive)
     }
 
-    guard agentStatus.tapActive else {
-      return .degraded(.eventTapInactive)
+    guard agentStatus.failedShortcuts.isEmpty else {
+      return .degraded(
+        .shortcutRegistrationFailures(shortcuts: agentStatus.failedShortcuts)
+      )
     }
 
     return .ready(activeShortcuts: agentStatus.bindingCount)

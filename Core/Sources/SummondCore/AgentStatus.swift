@@ -17,23 +17,15 @@ public enum AgentConfigurationState: String, Codable, Equatable, Sendable {
   }
 }
 
-public enum EventTapFailureReason: String, Codable, Equatable, Sendable {
-  case accessibilityDenied
-  case inputMonitoringDenied
-  case installationFailed
-  case disabledByTimeout
-  case disabledByUserInput
-  /// The agent detected a crash/restart loop and is deliberately not installing
-  /// the tap to avoid wedging the keyboard. See `RestartThrottle`.
-  case restartLoopDetected
-}
-
 public struct AgentStatus: Codable, Equatable, Sendable {
   public var agentVersion: String
+  /// Accessibility gates the New Window and Move open modes (Dock menu and
+  /// Space queries), not shortcut delivery -- hot keys need no permission.
   public var accessibilityGranted: Bool
-  public var inputMonitoringGranted: Bool
-  public var tapActive: Bool
-  public var tapFailureReason: EventTapFailureReason?
+  public var shortcutsActive: Bool
+  /// Shortcut descriptions whose system hot-key registration failed. Degraded
+  /// state like `unresolvedBundleIDs`: the remaining bindings stay active.
+  public var failedShortcuts: [String]
   public var configState: AgentConfigurationState
   public var bindingCount: Int
   public var lastReloadError: String?
@@ -42,9 +34,8 @@ public struct AgentStatus: Codable, Equatable, Sendable {
   public init(
     agentVersion: String,
     accessibilityGranted: Bool,
-    inputMonitoringGranted: Bool,
-    tapActive: Bool,
-    tapFailureReason: EventTapFailureReason? = nil,
+    shortcutsActive: Bool,
+    failedShortcuts: [String] = [],
     configState: AgentConfigurationState,
     bindingCount: Int,
     lastReloadError: String?,
@@ -52,9 +43,8 @@ public struct AgentStatus: Codable, Equatable, Sendable {
   ) {
     self.agentVersion = agentVersion
     self.accessibilityGranted = accessibilityGranted
-    self.inputMonitoringGranted = inputMonitoringGranted
-    self.tapActive = tapActive
-    self.tapFailureReason = tapFailureReason
+    self.shortcutsActive = shortcutsActive
+    self.failedShortcuts = failedShortcuts
     self.configState = configState
     self.bindingCount = bindingCount
     self.lastReloadError = lastReloadError
@@ -80,5 +70,4 @@ public enum AgentStatusCodec {
   func status(reply: @escaping (Data) -> Void)
   func reloadConfiguration(reply: @escaping (Data) -> Void)
   func requestAccessibilityPrompt(reply: @escaping (Data) -> Void)
-  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void)
 }

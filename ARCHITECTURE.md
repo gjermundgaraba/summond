@@ -61,10 +61,11 @@ cdhash instead of sealing it as a flat resource tree. The LaunchAgent plist's
 
 - Runs in the user's Aqua session.
 - Loads configuration from the shared Application Support file.
-- Installs a global `CGEvent` tap after Accessibility and Input Monitoring
-  permissions are granted.
-- Exports XPC status, reload, Accessibility-prompt, and Input Monitoring-prompt
-  requests.
+- Registers configured shortcuts as system hot keys (`RegisterEventHotKey`),
+  which needs no permission and keeps working while another process holds
+  secure keyboard entry. Accessibility is only needed by the New Window and
+  Move open modes.
+- Exports XPC status, reload, and Accessibility-prompt requests.
 - Uses `KeepAlive` crash-only semantics: launchd restarts it after an
   unsuccessful exit, but it is not a polling supervisor.
 
@@ -74,7 +75,7 @@ Menu bar login item embedded at
 `Contents/Library/LoginItems/SummondStatus.app` with bundle identifier
 `net.garaba.summond.ui`.
 
-- Shows agent reachability, Accessibility, Input Monitoring, shortcut listener,
+- Shows agent reachability, Accessibility, shortcut listener,
   and configuration state.
 - Sends status and reload requests through the same agent XPC service.
 - Opens the preferences app with `summond://` URLs for user actions.
@@ -97,7 +98,7 @@ Preferences draft
       resolved apps become active bindings
       missing bundle IDs become unresolvedBundleIDs
       hard invalid config preserves previous snapshot
-  → lock-protected snapshot replacement in KeyEventEngine
+  → HotKeyEngine re-registers the snapshot's hot keys
 ```
 
 The UI validates before save. The agent validates again because the shared file
@@ -108,23 +109,24 @@ Unresolved bundle identifiers are degraded state, not corruption. The agent
 skips those bindings, reports them in `AgentStatus.unresolvedBundleIDs`, and
 keeps all resolvable bindings active.
 
-## Key Event Hot Path
+## Shortcut Dispatch
 
 ```
-CGEvent tap keyDown
-  → KeyEventEngine.handleKeyEvent()
-  → extract CGKeyCode + relevant CGEventFlags
-  → O(1) lookup in BindingSnapshot
-  → if no match: return event
-  → if match:
-      log match
-      Task { await AppOpener.open(binding) }
-      return nil to consume the event
+window server matches a registered hot key
+  → Carbon kEventHotKeyPressed on the main run loop
+  → HotKeyEngine looks up the binding by hot-key ID
+  → log match
+  → Task { await AppOpener.open(binding) }
 ```
 
-Matched shortcuts are consumed immediately. If launching, opening a new window,
-moving windows, or activation later fails, the original key event is still
-swallowed and the failure is logged.
+Each active binding is registered with `RegisterEventHotKey`; matching happens
+inside the window server, which consumes the combo system-wide and delivers
+only registered shortcuts to the agent — other keystrokes never reach the
+process. If launching, opening a new window, moving windows, or activation
+later fails, the shortcut is still consumed and the failure is logged.
+Registrations rejected by macOS (for example, a combo held exclusively by
+another app) are reported per binding in `AgentStatus.failedShortcuts` while
+the remaining bindings stay active.
 
 ## App Opening
 
@@ -145,25 +147,24 @@ require disabling SIP.
 
 ## Concurrency Model
 
-- `AgentSupervisor` is `@MainActor`.
-- `KeyEventEngine` is `@unchecked Sendable`. The event tap runs on a dedicated
-  `net.garaba.summond.keytap` thread with its own run loop. Engine state lives
-  behind an `OSAllocatedUnfairLock`; the tap callback holds the lock only long
-  enough to copy out the snapshot. Verbose-logging state is shared atomically
+- `AgentSupervisor` and `HotKeyEngine` are `@MainActor`. Carbon delivers
+  hot-key events on the main run loop, so dispatch enters the engine with a
+  main-actor assertion, not a hop. Verbose-logging state is shared atomically
   with the runtime collaborators that emit diagnostics.
-- Engine methods are thread-safe. XPC calls enter on Foundation-managed queues
-  and hop to `@MainActor` for the supervisor. Status replies await any in-flight
-  event-tap startup attempt without blocking the main actor.
+- XPC calls enter on Foundation-managed queues and hop to `@MainActor` for the
+  supervisor.
 - `AppOpener` is an actor that deduplicates in-flight opens per bundle ID.
 - Storage wrappers that can be called from multiple contexts use `NSLock`.
-- Slow app-opening work is async; the key-event hot path stays synchronous.
+- Slow app-opening work is async; hot-key dispatch itself stays synchronous.
 
 ## Failure Semantics
 
-- Missing Accessibility or Input Monitoring permission prevents event tap
-  installation. The agent stays alive, polls trust state, and starts the engine
-  when both permissions are present.
-- Event tap creation failure is logged and surfaced through status.
+- Shortcut delivery needs no permission. Missing Accessibility only degrades
+  the New Window and Move open modes; those failures are logged at open time
+  and Accessibility state is surfaced through status.
+- Hot-key handler installation failure and per-binding registration failures
+  are logged and surfaced through status; failed bindings do not disable the
+  rest.
 - Undecodable JSON is reported as corrupt, structurally invalid configuration as
   invalid, and file-access failures as unavailable. All three preserve the
   previous active snapshot.
@@ -176,10 +177,8 @@ require disabling SIP.
   app-open failures, not process crashes.
 - The LaunchAgent plist uses `KeepAlive` with `SuccessfulExit = false`, so
   launchd restarts crash exits but does not restart intentional successful
-  exits.
-- A restart-loop breaker watches recent agent launches. When the throttle trips,
-  the agent defers tap installation, surfaces `.restartLoopDetected`, keeps
-  polling, and recovers once the throttle window clears.
+  exits. A crash-looping agent cannot wedge the keyboard: the OS releases a
+  dead process's hot keys, unlike an abandoned active event tap.
 
 ## Storage Format
 
