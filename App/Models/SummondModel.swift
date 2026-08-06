@@ -483,7 +483,12 @@ final class SummondModel {
   }
 
   func requestAccessibilitySetup() async {
-    await requestPermissionPrompt(agentClient.requestAccessibilityPrompt)
+    do {
+      try await agentClient.requestAccessibilityPrompt()
+      permissionError = nil
+    } catch {
+      permissionError = error.localizedDescription
+    }
   }
 
   func openLoginItemsSettings() {
@@ -494,15 +499,6 @@ final class SummondModel {
     openSystemSettings(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     )
-  }
-
-  private func requestPermissionPrompt(_ request: () async throws -> Void) async {
-    do {
-      try await request()
-      permissionError = nil
-    } catch {
-      permissionError = error.localizedDescription
-    }
   }
 
   private func retryUnavailableConfigurationLoad() -> Bool {

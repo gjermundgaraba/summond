@@ -69,8 +69,8 @@ not send telemetry, analytics, or keystroke data anywhere, and it makes no
 network requests for its core behavior. Only registered shortcuts are consumed;
 all other key events never reach Summond. Normal logs record operational
 events; verbose logging (optional) adds more detail for debugging and may
-include shortcut-related information in the unified system log. Configuration is stored locally at
-`~/Library/Application Support/Summond/configuration.json`.
+include shortcut-related information in the unified system log. Configuration
+is stored locally at `~/Library/Application Support/Summond/configuration.json`.
 
 ## Configure Shortcuts
 

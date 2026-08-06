@@ -1035,6 +1035,7 @@ private func healthyStatus(bindingCount: Int = 0) -> AgentStatus {
   AgentStatus(
     agentVersion: "test",
     accessibilityGranted: true,
+    accessibilityRequired: false,
     shortcutsActive: true,
     configState: .ok,
     bindingCount: bindingCount,

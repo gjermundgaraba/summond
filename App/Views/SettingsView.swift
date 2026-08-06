@@ -274,7 +274,7 @@ extension SystemHealth {
       case .backgroundServiceNotFound:
         return "The background service could not be found."
       case .accessibilityPermission:
-        return "Accessibility permission is required."
+        return "Accessibility permission is required for the New Window and Move Here behaviors."
       }
     case .degraded(let issue):
       switch issue {

@@ -123,6 +123,9 @@ public final class HotKeyEngine {
         )
       }
     }
+    // Snapshot iteration order is dictionary order; sort so status and UI are
+    // deterministic across reloads.
+    failedShortcuts.sort()
   }
 
   private func dispatch(hotKeyID: UInt32) {

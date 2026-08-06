@@ -23,17 +23,13 @@ struct SetupAssistantView: View {
         backgroundServiceRow
         permissionRow(
           title: "Accessibility",
-          explanation: "Allows Summond to direct application windows.",
+          explanation:
+            "Lets the New Window and Move Here behaviors direct application windows. "
+            + "Shortcuts themselves work without it.",
           systemImage: "hand.raised.fill",
           isGranted: accessibilityGranted,
           actionTitle: "Open Settings…",
-          action: {
-            startPermissionSetup(
-              pane: .accessibility,
-              requestAgentPrompt: { Task { await model.requestAccessibilitySetup() } },
-              fallback: model.openAccessibilitySettings
-            )
-          },
+          action: startAccessibilitySetup,
           accessibilityIdentifier: "setup.openAccessibilitySettingsButton"
         )
         if let error = model.permissionError {
@@ -59,23 +55,19 @@ struct SetupAssistantView: View {
     }
   }
 
-  private func startPermissionSetup(
-    pane: PermissionFlowPane,
-    requestAgentPrompt: () -> Void,
-    fallback: () -> Void
-  ) {
-    requestAgentPrompt()
+  private func startAccessibilitySetup() {
+    Task { await model.requestAccessibilitySetup() }
 
     #if DEBUG
       if UITestHarness.isActive, !UITestHarness.allowsSystemPermissionFlow { return }
     #endif
 
     guard let agentAppURL = PermissionFlowHelperAppLocator.bundledAgentAppURL() else {
-      fallback()
+      model.openAccessibilitySettings()
       return
     }
 
-    permissionFlowController.authorize(pane: pane, suggestedAppURLs: [agentAppURL])
+    permissionFlowController.authorize(pane: .accessibility, suggestedAppURLs: [agentAppURL])
   }
 
   private var header: some View {

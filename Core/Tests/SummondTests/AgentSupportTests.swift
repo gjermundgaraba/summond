@@ -30,6 +30,7 @@ struct AgentStatusTests {
     let status = AgentStatus(
       agentVersion: "1.2.3",
       accessibilityGranted: true,
+      accessibilityRequired: true,
       shortcutsActive: false,
       failedShortcuts: ["cmd+f5"],
       configState: .invalid,
@@ -63,10 +64,6 @@ struct SystemHealthTests {
     let cases: [(AgentStatus?, SystemHealth)] = [
       (nil, .degraded(.agentUnavailable)),
       (
-        status(accessibilityGranted: false),
-        .setupRequired(.accessibilityPermission)
-      ),
-      (
         status(configState: .unavailable, lastReloadError: "permission denied"),
         .degraded(.configurationUnavailable(details: "permission denied"))
       ),
@@ -88,6 +85,20 @@ struct SystemHealthTests {
       (
         status(failedShortcuts: ["cmd+f5"]),
         .degraded(.shortcutRegistrationFailures(shortcuts: ["cmd+f5"]))
+      ),
+      (
+        status(accessibilityGranted: false),
+        .setupRequired(.accessibilityPermission)
+      ),
+      (
+        // Configuration problems must not hide behind the permission banner.
+        status(accessibilityGranted: false, configState: .invalid, lastReloadError: "dup"),
+        .degraded(.configurationInvalid(details: "dup"))
+      ),
+      (
+        // Launch-only bindings never demand Accessibility.
+        status(accessibilityGranted: false, accessibilityRequired: false),
+        .ready(activeShortcuts: 3)
       ),
       (status(configState: .fresh, bindingCount: 0), .ready(activeShortcuts: 0)),
       (status(bindingCount: 5), .ready(activeShortcuts: 5)),
@@ -112,7 +123,7 @@ struct SystemHealthTests {
       (.requiresApproval, .setupRequired(.backgroundServiceApprovalRequired)),
       (.notRegistered, .setupRequired(.backgroundServiceNotRegistered)),
       (.notFound, .setupRequired(.backgroundServiceNotFound)),
-      (.enabled, .setupRequired(.accessibilityPermission)),
+      (.enabled, .degraded(.configurationInvalid(details: "invalid"))),
     ]
 
     for (serviceStatus, expected) in cases {
@@ -124,6 +135,7 @@ struct SystemHealthTests {
 
   private func status(
     accessibilityGranted: Bool = true,
+    accessibilityRequired: Bool = true,
     shortcutsActive: Bool = true,
     failedShortcuts: [String] = [],
     configState: AgentConfigurationState = .ok,
@@ -134,6 +146,7 @@ struct SystemHealthTests {
     AgentStatus(
       agentVersion: "test",
       accessibilityGranted: accessibilityGranted,
+      accessibilityRequired: accessibilityRequired,
       shortcutsActive: shortcutsActive,
       failedShortcuts: failedShortcuts,
       configState: configState,
@@ -172,6 +185,7 @@ struct AgentConfigurationReloadTests {
     #expect(fields.bindingCount == 1)
     #expect(fields.lastReloadError == nil)
     #expect(fields.unresolvedBundleIDs == ["com.example.missing"])
+    #expect(!fields.accessibilityRequired)
 
     let installedShortcut = try BindingCompiler.compileShortcut(
       Shortcut(key: "f5", mods: ["cmd"])
@@ -179,6 +193,30 @@ struct AgentConfigurationReloadTests {
     #expect(
       snapshot.bindingsByTrigger[installedShortcut]?.identity.bundleIdentifier
         == "com.apple.safari")
+  }
+
+  @Test("Reload flags the Accessibility requirement for window-managing modes")
+  func reloadFlagsAccessibilityRequirement() throws {
+    let configuration = SummondConfiguration(
+      bindings: [
+        StoredBinding(
+          shortcut: Shortcut(key: "f5", mods: ["cmd"]),
+          target: try AppTarget(bundleID: "com.apple.safari", mode: .newWindow)
+        )
+      ]
+    )
+    let store = InMemoryConfigurationStore()
+    try store.save(configuration)
+    let reloader = AgentConfigurationReloader(
+      store: store,
+      appResolver: TestAppResolver(appsByBundleID: [
+        "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
+      ])
+    )
+
+    _ = reloader.reload()
+
+    #expect(reloader.statusFields().accessibilityRequired)
   }
 
   @Test("Hard invalid reload preserves the previous engine snapshot")

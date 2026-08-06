@@ -16,6 +16,7 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
   private var currentVerboseLogging = false
   private var currentLastReloadError: String?
   private var currentUnresolvedBundleIDs: [String] = []
+  private var currentAccessibilityRequired = false
 
   public init(
     store: any ConfigurationStore,
@@ -45,14 +46,16 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
     configState: AgentConfigurationState,
     bindingCount: Int,
     lastReloadError: String?,
-    unresolvedBundleIDs: [String]
+    unresolvedBundleIDs: [String],
+    accessibilityRequired: Bool
   ) {
     lock.withLock {
       (
         currentConfigState,
         currentBindingCount,
         currentLastReloadError,
-        currentUnresolvedBundleIDs
+        currentUnresolvedBundleIDs,
+        currentAccessibilityRequired
       )
     }
   }
@@ -67,12 +70,16 @@ public final class AgentConfigurationReloader: @unchecked Sendable {
         appResolver: appResolver
       )
       let unresolvedBundleIDs = compiled.unresolvedBundleIDs
+      let accessibilityRequired = compiled.snapshot.bindingsByTrigger.values.contains {
+        $0.binding.target.mode != .launch
+      }
       lock.withLock {
         currentBindingCount = compiled.snapshot.count
         currentConfigState = configState
         currentVerboseLogging = configuration.verboseLogging
         currentLastReloadError = nil
         currentUnresolvedBundleIDs = unresolvedBundleIDs
+        currentAccessibilityRequired = accessibilityRequired
       }
       return AgentConfigurationReloadResult(
         snapshotToInstall: compiled.snapshot,

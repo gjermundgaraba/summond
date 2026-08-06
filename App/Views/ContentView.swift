@@ -476,7 +476,7 @@ extension SetupRequirement {
     case .backgroundServiceNotFound:
       "The background service could not be found. Try enabling it again."
     case .accessibilityPermission:
-      "Grant Summond Accessibility permission."
+      "Grant Summond Accessibility permission so New Window and Move Here shortcuts can manage windows."
     }
   }
 }

@@ -204,7 +204,6 @@ protocol supports:
 - `status`
 - `reloadConfiguration`
 - `requestAccessibilityPrompt`
-- `requestInputMonitoringPrompt`
 
 For signed builds, both sides install
 `NSXPCConnection.setCodeSigningRequirement(_:)` requirements. The listener pins

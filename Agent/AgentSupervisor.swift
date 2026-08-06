@@ -52,6 +52,7 @@ final class AgentSupervisor {
     return AgentStatus(
       agentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
       accessibilityGranted: AccessibilityTrust.isTrusted(prompt: false),
+      accessibilityRequired: fields.accessibilityRequired,
       shortcutsActive: engineStatus.isHandlerInstalled,
       failedShortcuts: engineStatus.failedShortcuts,
       configState: fields.configState,

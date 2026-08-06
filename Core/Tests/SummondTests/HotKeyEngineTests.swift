@@ -138,15 +138,19 @@ struct HotKeyEngineTests {
     #expect(runtime.openCount() == 1)
   }
 
-  @Test("Reports failed registrations and keeps the rest active")
+  @Test("Reports failed registrations sorted and keeps the rest active")
   func reportsFailedRegistrations() throws {
     let system = TestHotKeySystem()
-    system.failingKeyCodes = [UInt32(try #require(KeyCode.resolve("f6")))]
+    system.failingKeyCodes = [
+      UInt32(try #require(KeyCode.resolve("f6"))),
+      UInt32(try #require(KeyCode.resolve("f8"))),
+    ]
     let engine = makeEngine(runtime: TestAppRuntime(), system: system)
 
     engine.start()
     engine.replaceSnapshot(
       try makeSnapshot(bindings: [
+        (key: "f8", mods: ["cmd"], bundleID: "com.apple.notes"),
         (key: "f5", mods: ["cmd"], bundleID: "com.apple.safari"),
         (key: "f6", mods: ["cmd"], bundleID: "com.apple.mail"),
       ]),
@@ -154,7 +158,8 @@ struct HotKeyEngineTests {
     )
 
     #expect(system.registrations.count == 1)
-    #expect(engine.status.failedShortcuts == ["cmd+f6"])
+    // Sorted regardless of snapshot dictionary iteration order.
+    #expect(engine.status.failedShortcuts == ["cmd+f6", "cmd+f8"])
   }
 
   @Test("A failed handler install is reported and registers nothing")

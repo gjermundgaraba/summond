@@ -1,7 +1,5 @@
 import AppKit
 import ApplicationServices
-import Foundation
-import OSLog
 import SummondCore
 
 @main
