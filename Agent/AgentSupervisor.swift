@@ -27,9 +27,19 @@ final class AgentSupervisor {
     loadConfiguration()
   }
 
-  func status() async -> AgentStatus {
-    engine.start()
-    return makeStatus()
+  func status() -> AgentStatus {
+    let fields = reloader.statusFields()
+    return AgentStatus(
+      agentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
+      accessibilityGranted: AccessibilityTrust.isTrusted(prompt: false),
+      accessibilityRequired: fields.accessibilityRequired,
+      shortcutsActive: engine.isHandlerInstalled,
+      failedShortcuts: engine.failedShortcuts,
+      configState: fields.configState,
+      bindingCount: fields.bindingCount,
+      lastReloadError: fields.lastReloadError,
+      unresolvedBundleIDs: fields.unresolvedBundleIDs
+    )
   }
 
   func loadConfiguration() {
@@ -41,28 +51,12 @@ final class AgentSupervisor {
     }
   }
 
-  func reloadConfiguration() async -> AgentStatus {
+  func reloadConfiguration() -> AgentStatus {
     loadConfiguration()
-    return await status()
+    return status()
   }
 
-  private func makeStatus() -> AgentStatus {
-    let fields = reloader.statusFields()
-    let engineStatus = engine.status
-    return AgentStatus(
-      agentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
-      accessibilityGranted: AccessibilityTrust.isTrusted(prompt: false),
-      accessibilityRequired: fields.accessibilityRequired,
-      shortcutsActive: engineStatus.isHandlerInstalled,
-      failedShortcuts: engineStatus.failedShortcuts,
-      configState: fields.configState,
-      bindingCount: fields.bindingCount,
-      lastReloadError: fields.lastReloadError,
-      unresolvedBundleIDs: fields.unresolvedBundleIDs
-    )
-  }
-
-  func requestAccessibilityPrompt() async {
+  func requestAccessibilityPrompt() {
     _ = AccessibilityTrust.isTrusted(prompt: true)
   }
 }

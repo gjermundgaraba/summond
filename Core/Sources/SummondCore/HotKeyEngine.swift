@@ -1,17 +1,6 @@
 import Carbon.HIToolbox
 import CoreGraphics
-import Foundation
 import OSLog
-
-public struct HotKeyEngineStatus: Equatable, Sendable {
-  public let isHandlerInstalled: Bool
-  public let failedShortcuts: [String]
-
-  public init(isHandlerInstalled: Bool, failedShortcuts: [String]) {
-    self.isHandlerInstalled = isHandlerInstalled
-    self.failedShortcuts = failedShortcuts
-  }
-}
 
 /// The system hot-key registry the engine drives. Split from the engine so
 /// tests can observe registrations without touching the real Carbon registry.
@@ -33,28 +22,26 @@ public protocol HotKeySystem: AnyObject {
 /// system-wide, matching the old tap's swallow-on-match behavior.
 ///
 /// Registration only happens while the handler is installed: a hot key with no
-/// handler would still consume its keystroke system-wide but silently drop it,
-/// so `replaceSnapshot` before `start()` just stores the snapshot.
+/// handler would still consume its keystroke system-wide but silently drop it.
+/// Call `start()` before `replaceSnapshot`; a snapshot applied without a
+/// handler is dropped, not deferred.
 @MainActor
 public final class HotKeyEngine {
   private let system: any HotKeySystem
   private let appOpener: AppOpener
   private let logger: Logger
   private let verboseLogging: VerboseLoggingState
-  private var snapshot: BindingSnapshot
   private var bindingsByHotKeyID: [UInt32: CompiledAppBinding] = [:]
-  private var failedShortcuts: [String] = []
-  private var isHandlerInstalled = false
+  public private(set) var failedShortcuts: [String] = []
+  public private(set) var isHandlerInstalled = false
   private var nextHotKeyID: UInt32 = 0
 
   public init(
-    snapshot: BindingSnapshot = .empty,
     runtime: any AppRuntime,
     system: (any HotKeySystem)? = nil,
     logger: Logger = SummondLoggers.engine,
     verboseLogging: VerboseLoggingState
   ) {
-    self.snapshot = snapshot
     self.system = system ?? CarbonHotKeySystem()
     self.appOpener = AppOpener(
       runtime: runtime,
@@ -65,17 +52,7 @@ public final class HotKeyEngine {
     self.verboseLogging = verboseLogging
   }
 
-  public var status: HotKeyEngineStatus {
-    HotKeyEngineStatus(
-      isHandlerInstalled: isHandlerInstalled,
-      failedShortcuts: failedShortcuts
-    )
-  }
-
   public func start() {
-    guard !isHandlerInstalled else {
-      return
-    }
     isHandlerInstalled = system.installHandler { [weak self] hotKeyID in
       self?.dispatch(hotKeyID: hotKeyID)
     }
@@ -84,22 +61,20 @@ public final class HotKeyEngine {
       return
     }
     logger.info("hot-key event handler installed")
-    applyRegistrations()
   }
 
   public func replaceSnapshot(
     _ snapshot: BindingSnapshot,
     verboseLogging: Bool
   ) {
-    self.snapshot = snapshot
     self.verboseLogging.setEnabled(verboseLogging)
     if verboseLogging {
       logger.debug("installed \(snapshot.count, privacy: .public) active binding(s)")
     }
-    applyRegistrations()
+    applyRegistrations(snapshot)
   }
 
-  private func applyRegistrations() {
+  private func applyRegistrations(_ snapshot: BindingSnapshot) {
     guard isHandlerInstalled else {
       return
     }

@@ -10,7 +10,6 @@ private final class TestHotKeySystem: HotKeySystem {
   var failingKeyCodes: Set<UInt32> = []
   private(set) var registrations: [(keyCode: UInt32, carbonModifiers: UInt32, hotKeyID: UInt32)] =
     []
-  private(set) var unregisterAllCount = 0
   private var dispatch: (@MainActor (UInt32) -> Void)?
 
   func installHandler(dispatch: @escaping @MainActor (UInt32) -> Void) -> Bool {
@@ -28,7 +27,6 @@ private final class TestHotKeySystem: HotKeySystem {
   }
 
   func unregisterAll() {
-    unregisterAllCount += 1
     registrations.removeAll()
   }
 
@@ -68,16 +66,6 @@ struct HotKeyEngineTests {
     )
   }
 
-  private func waitForOpen(_ runtime: TestAppRuntime, count target: Int) async -> Bool {
-    for _ in 0..<200 {
-      if runtime.openCount() >= target {
-        return true
-      }
-      try? await Task.sleep(nanoseconds: 1_000_000)
-    }
-    return false
-  }
-
   @Test("Registers bindings once started and fires the action on dispatch")
   func registersAndFiresOnDispatch() async throws {
     let runtime = TestAppRuntime()
@@ -90,25 +78,15 @@ struct HotKeyEngineTests {
     let registration = try #require(system.registrations.first)
     #expect(registration.keyCode == UInt32(try #require(KeyCode.resolve("f5"))))
     #expect(registration.carbonModifiers == UInt32(cmdKey))
-    #expect(engine.status.isHandlerInstalled)
-    #expect(engine.status.failedShortcuts.isEmpty)
+    #expect(engine.isHandlerInstalled)
+    #expect(engine.failedShortcuts.isEmpty)
 
+    runtime.suspendNextOpen()
     system.press(hotKeyID: registration.hotKeyID)
 
-    #expect(await waitForOpen(runtime, count: 1))
+    #expect(await runtime.waitForPendingOpen())
+    runtime.completeOpen(with: .launched)
     #expect(runtime.openCount() == 1)
-  }
-
-  @Test("Defers registration until the handler is installed")
-  func defersRegistrationUntilStarted() throws {
-    let system = TestHotKeySystem()
-    let engine = makeEngine(runtime: TestAppRuntime(), system: system)
-
-    engine.replaceSnapshot(try makeSnapshot(), verboseLogging: false)
-    #expect(system.registrations.isEmpty)
-
-    engine.start()
-    #expect(system.registrations.count == 1)
   }
 
   @Test("Replacing the snapshot re-registers and retires old hot key IDs")
@@ -130,11 +108,12 @@ struct HotKeyEngineTests {
     let newID = try #require(system.registrations.first).hotKeyID
     #expect(newID != oldID)
 
-    // A stale ID from the retired snapshot must not fire anything.
+    runtime.suspendNextOpen()
     system.press(hotKeyID: oldID)
     system.press(hotKeyID: newID)
 
-    #expect(await waitForOpen(runtime, count: 1))
+    #expect(await runtime.waitForPendingOpen())
+    runtime.completeOpen(with: .launched)
     #expect(runtime.openCount() == 1)
   }
 
@@ -158,8 +137,7 @@ struct HotKeyEngineTests {
     )
 
     #expect(system.registrations.count == 1)
-    // Sorted regardless of snapshot dictionary iteration order.
-    #expect(engine.status.failedShortcuts == ["cmd+f6", "cmd+f8"])
+    #expect(engine.failedShortcuts == ["cmd+f6", "cmd+f8"])
   }
 
   @Test("A failed handler install is reported and registers nothing")
@@ -171,7 +149,7 @@ struct HotKeyEngineTests {
     engine.start()
     engine.replaceSnapshot(try makeSnapshot(), verboseLogging: false)
 
-    #expect(!engine.status.isHandlerInstalled)
+    #expect(!engine.isHandlerInstalled)
     #expect(system.registrations.isEmpty)
   }
 
