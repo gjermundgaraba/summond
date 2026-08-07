@@ -275,7 +275,7 @@ struct SummondModelTests {
     agent.promptError = MockError.statusFailed
     await model.requestAccessibilitySetup()
     agent.promptError = nil
-    await model.requestInputMonitoringSetup()
+    await model.requestAccessibilitySetup()
     #expect(model.permissionError == nil)
     #expect(model.serviceError == serviceError)
   }
@@ -752,10 +752,6 @@ private final class MockAgentClient: @unchecked Sendable, AgentClientProtocol {
   func requestAccessibilityPrompt() async throws {
     if let promptError { throw promptError }
   }
-
-  func requestInputMonitoringPrompt() async throws {
-    if let promptError { throw promptError }
-  }
 }
 
 private actor CancellableAgentClient: AgentClientProtocol {
@@ -776,7 +772,6 @@ private actor CancellableAgentClient: AgentClientProtocol {
 
   func reloadConfiguration() async throws -> AgentStatus { healthyStatus() }
   func requestAccessibilityPrompt() async throws {}
-  func requestInputMonitoringPrompt() async throws {}
 
   func waitUntilSecondCallStarts() async {
     guard statusCalls < 2 else { return }
@@ -803,7 +798,6 @@ private actor RacingAgentClient: AgentClientProtocol {
   }
 
   func requestAccessibilityPrompt() async throws {}
-  func requestInputMonitoringPrompt() async throws {}
 
   func waitUntilStatusStarts() async {
     guard statusContinuation == nil else { return }
@@ -1041,8 +1035,8 @@ private func healthyStatus(bindingCount: Int = 0) -> AgentStatus {
   AgentStatus(
     agentVersion: "test",
     accessibilityGranted: true,
-    inputMonitoringGranted: true,
-    tapActive: true,
+    accessibilityRequired: false,
+    shortcutsActive: true,
     configState: .ok,
     bindingCount: bindingCount,
     lastReloadError: nil

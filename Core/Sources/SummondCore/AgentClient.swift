@@ -5,7 +5,6 @@ public protocol AgentClientProtocol: Sendable {
   func status() async throws -> AgentStatus
   func reloadConfiguration() async throws -> AgentStatus
   func requestAccessibilityPrompt() async throws
-  func requestInputMonitoringPrompt() async throws
 }
 
 private struct MissingTeamIdentifierError: LocalizedError {
@@ -64,12 +63,6 @@ public final class AgentClient: @unchecked Sendable, AgentClientProtocol {
   public func requestAccessibilityPrompt() async throws {
     _ = try await call(operation: "Accessibility prompt request") { remote, reply in
       remote.requestAccessibilityPrompt(reply: reply)
-    }
-  }
-
-  public func requestInputMonitoringPrompt() async throws {
-    _ = try await call(operation: "Input Monitoring prompt request") { remote, reply in
-      remote.requestInputMonitoringPrompt(reply: reply)
     }
   }
 

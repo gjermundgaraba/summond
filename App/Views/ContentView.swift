@@ -453,14 +453,14 @@ private struct HealthNotice {
     title = issue.title
     message = issue.message
     switch issue {
-    case .agentUnavailable, .eventTapFailure, .eventTapInactive:
+    case .agentUnavailable, .shortcutListenerInactive:
       actionTitle = "Restart Service"
       action = .restartService
     case .reloadFailed:
       actionTitle = "Retry Reload"
       action = .retryReload
     case .configurationUnavailable, .configurationCorrupt, .configurationInvalid,
-      .unresolvedApplications:
+      .unresolvedApplications, .shortcutRegistrationFailures:
       break
     }
   }
@@ -476,9 +476,7 @@ extension SetupRequirement {
     case .backgroundServiceNotFound:
       "The background service could not be found. Try enabling it again."
     case .accessibilityPermission:
-      "Grant Summond Accessibility permission."
-    case .inputMonitoringPermission:
-      "Grant Summond Input Monitoring permission."
+      "Grant Summond Accessibility permission so New Window and Move Here shortcuts can manage windows."
     }
   }
 }
@@ -490,7 +488,8 @@ extension SystemIssue {
     case .configurationUnavailable: "Configuration Is Unavailable"
     case .configurationCorrupt, .configurationInvalid: "Configuration Needs Attention"
     case .unresolvedApplications: "Some Applications Are Missing"
-    case .eventTapFailure, .eventTapInactive: "Shortcut Listener Is Inactive"
+    case .shortcutRegistrationFailures: "Some Shortcuts Are Not Registered"
+    case .shortcutListenerInactive: "Shortcut Listener Is Inactive"
     case .reloadFailed: "Changes Saved, Reload Failed"
     }
   }
@@ -509,25 +508,13 @@ extension SystemIssue {
       let count = bundleIDs.count
       let noun = count == 1 ? "application is" : "applications are"
       return "\(count) configured \(noun) not installed."
-    case .eventTapFailure(let reason):
-      return reason.message
-    case .eventTapInactive:
+    case .shortcutRegistrationFailures(let shortcuts):
+      return "macOS rejected these shortcuts: \(shortcuts.joined(separator: ", ")). "
+        + "They may conflict with another app."
+    case .shortcutListenerInactive:
       return "The global shortcut listener stopped. Restart the service to resume it."
     case .reloadFailed(let details):
       return details
-    }
-  }
-}
-
-extension EventTapFailureReason {
-  fileprivate var message: String {
-    switch self {
-    case .accessibilityDenied: "Summond no longer has Accessibility permission."
-    case .inputMonitoringDenied: "Summond no longer has Input Monitoring permission."
-    case .installationFailed: "The global shortcut listener could not start."
-    case .disabledByTimeout: "macOS disabled the shortcut listener after it timed out."
-    case .disabledByUserInput: "macOS disabled the shortcut listener."
-    case .restartLoopDetected: "The shortcut listener paused after repeated restarts."
     }
   }
 }

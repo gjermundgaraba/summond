@@ -30,9 +30,9 @@ struct AgentStatusTests {
     let status = AgentStatus(
       agentVersion: "1.2.3",
       accessibilityGranted: true,
-      inputMonitoringGranted: true,
-      tapActive: false,
-      tapFailureReason: .installationFailed,
+      accessibilityRequired: true,
+      shortcutsActive: false,
+      failedShortcuts: ["cmd+f5"],
       configState: .invalid,
       bindingCount: 2,
       lastReloadError: "missing app",
@@ -47,7 +47,7 @@ struct AgentStatusTests {
   @Test("Rejects status payloads that omit required fields")
   func rejectsStatusPayloadsMissingRequiredFields() throws {
     let incompleteJSON = """
-      {"agentVersion":"1.0.0","accessibilityGranted":true,"tapActive":true,\
+      {"agentVersion":"1.0.0","accessibilityGranted":true,"shortcutsActive":true,\
       "configState":"ok","bindingCount":3}
       """
 
@@ -63,11 +63,6 @@ struct SystemHealthTests {
   func evaluatesAgentOutcomes() {
     let cases: [(AgentStatus?, SystemHealth)] = [
       (nil, .degraded(.agentUnavailable)),
-      (
-        status(accessibilityGranted: false, inputMonitoringGranted: false),
-        .setupRequired(.accessibilityPermission)
-      ),
-      (status(inputMonitoringGranted: false), .setupRequired(.inputMonitoringPermission)),
       (
         status(configState: .unavailable, lastReloadError: "permission denied"),
         .degraded(.configurationUnavailable(details: "permission denied"))
@@ -86,11 +81,25 @@ struct SystemHealthTests {
           .unresolvedApplications(bundleIDs: ["com.example.one", "com.example.two"])
         )
       ),
+      (status(shortcutsActive: false), .degraded(.shortcutListenerInactive)),
       (
-        status(tapActive: false, tapFailureReason: .installationFailed),
-        .degraded(.eventTapFailure(.installationFailed))
+        status(failedShortcuts: ["cmd+f5"]),
+        .degraded(.shortcutRegistrationFailures(shortcuts: ["cmd+f5"]))
       ),
-      (status(tapActive: false), .degraded(.eventTapInactive)),
+      (
+        status(accessibilityGranted: false),
+        .setupRequired(.accessibilityPermission)
+      ),
+      (
+        // Configuration problems must not hide behind the permission banner.
+        status(accessibilityGranted: false, configState: .invalid, lastReloadError: "dup"),
+        .degraded(.configurationInvalid(details: "dup"))
+      ),
+      (
+        // Launch-only bindings never demand Accessibility.
+        status(accessibilityGranted: false, accessibilityRequired: false),
+        .ready(activeShortcuts: 3)
+      ),
       (status(configState: .fresh, bindingCount: 0), .ready(activeShortcuts: 0)),
       (status(bindingCount: 5), .ready(activeShortcuts: 5)),
     ]
@@ -104,9 +113,8 @@ struct SystemHealthTests {
   func evaluatesServiceOutcomesFirst() {
     let unhealthyAgent = status(
       accessibilityGranted: false,
-      inputMonitoringGranted: false,
-      tapActive: false,
-      tapFailureReason: .restartLoopDetected,
+      shortcutsActive: false,
+      failedShortcuts: ["cmd+f5"],
       configState: .invalid,
       lastReloadError: "invalid",
       unresolvedBundleIDs: ["com.example.missing"]
@@ -115,7 +123,7 @@ struct SystemHealthTests {
       (.requiresApproval, .setupRequired(.backgroundServiceApprovalRequired)),
       (.notRegistered, .setupRequired(.backgroundServiceNotRegistered)),
       (.notFound, .setupRequired(.backgroundServiceNotFound)),
-      (.enabled, .setupRequired(.accessibilityPermission)),
+      (.enabled, .degraded(.configurationInvalid(details: "invalid"))),
     ]
 
     for (serviceStatus, expected) in cases {
@@ -127,9 +135,9 @@ struct SystemHealthTests {
 
   private func status(
     accessibilityGranted: Bool = true,
-    inputMonitoringGranted: Bool = true,
-    tapActive: Bool = true,
-    tapFailureReason: EventTapFailureReason? = nil,
+    accessibilityRequired: Bool = true,
+    shortcutsActive: Bool = true,
+    failedShortcuts: [String] = [],
     configState: AgentConfigurationState = .ok,
     bindingCount: Int = 3,
     lastReloadError: String? = nil,
@@ -138,9 +146,9 @@ struct SystemHealthTests {
     AgentStatus(
       agentVersion: "test",
       accessibilityGranted: accessibilityGranted,
-      inputMonitoringGranted: inputMonitoringGranted,
-      tapActive: tapActive,
-      tapFailureReason: tapFailureReason,
+      accessibilityRequired: accessibilityRequired,
+      shortcutsActive: shortcutsActive,
+      failedShortcuts: failedShortcuts,
       configState: configState,
       bindingCount: bindingCount,
       lastReloadError: lastReloadError,
@@ -177,6 +185,7 @@ struct AgentConfigurationReloadTests {
     #expect(fields.bindingCount == 1)
     #expect(fields.lastReloadError == nil)
     #expect(fields.unresolvedBundleIDs == ["com.example.missing"])
+    #expect(!fields.accessibilityRequired)
 
     let installedShortcut = try BindingCompiler.compileShortcut(
       Shortcut(key: "f5", mods: ["cmd"])
@@ -184,6 +193,30 @@ struct AgentConfigurationReloadTests {
     #expect(
       snapshot.bindingsByTrigger[installedShortcut]?.identity.bundleIdentifier
         == "com.apple.safari")
+  }
+
+  @Test("Reload flags the Accessibility requirement for window-managing modes")
+  func reloadFlagsAccessibilityRequirement() throws {
+    let configuration = SummondConfiguration(
+      bindings: [
+        StoredBinding(
+          shortcut: Shortcut(key: "f5", mods: ["cmd"]),
+          target: try AppTarget(bundleID: "com.apple.safari", mode: .newWindow)
+        )
+      ]
+    )
+    let store = InMemoryConfigurationStore()
+    try store.save(configuration)
+    let reloader = AgentConfigurationReloader(
+      store: store,
+      appResolver: TestAppResolver(appsByBundleID: [
+        "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
+      ])
+    )
+
+    _ = reloader.reload()
+
+    #expect(reloader.statusFields().accessibilityRequired)
   }
 
   @Test("Hard invalid reload preserves the previous engine snapshot")

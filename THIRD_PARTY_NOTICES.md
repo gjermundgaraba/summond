@@ -39,8 +39,7 @@ Upstream: https://github.com/koekeishiya/yabai
 ## PermissionFlow
 
 Summond bundles the PermissionFlow Swift package to guide the user through
-granting Accessibility and Input Monitoring permission. This notice file is
-bundled into the app.
+granting Accessibility permission. This notice file is bundled into the app.
 
 ```
 Copyright (c) 2026 小弟调调

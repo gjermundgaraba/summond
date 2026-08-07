@@ -103,8 +103,6 @@ extension SystemHealth {
         return "Background Service Disabled"
       case .accessibilityPermission:
         return "Needs Accessibility"
-      case .inputMonitoringPermission:
-        return "Needs Input Monitoring"
       }
     case .degraded(let issue):
       switch issue {
@@ -120,9 +118,11 @@ extension SystemHealth {
         let count = bundleIDs.count
         let noun = count == 1 ? "App" : "Apps"
         return "\(count) \(noun) Not Installed"
-      case .eventTapFailure(let reason):
-        return reason.statusLine
-      case .eventTapInactive:
+      case .shortcutRegistrationFailures(let shortcuts):
+        let count = shortcuts.count
+        let noun = count == 1 ? "Shortcut" : "Shortcuts"
+        return "\(count) \(noun) Not Registered"
+      case .shortcutListenerInactive:
         return "Shortcut Listener Inactive"
       case .reloadFailed:
         return "Configuration Reload Failed"
@@ -140,30 +140,12 @@ extension SystemHealth {
       switch issue {
       case .reloadFailed:
         Recovery(title: "Retry Reload", action: .retryReload)
-      case .agentUnavailable, .unresolvedApplications, .eventTapFailure, .eventTapInactive:
+      case .agentUnavailable, .unresolvedApplications, .shortcutRegistrationFailures,
+        .shortcutListenerInactive:
         Recovery(title: "Open Summond…", action: .openMain)
       case .configurationUnavailable, .configurationCorrupt, .configurationInvalid:
         Recovery(title: "Open Diagnostics…", action: .openDiagnostics)
       }
-    }
-  }
-}
-
-extension EventTapFailureReason {
-  fileprivate var statusLine: String {
-    switch self {
-    case .accessibilityDenied:
-      "Needs Accessibility"
-    case .inputMonitoringDenied:
-      "Needs Input Monitoring"
-    case .installationFailed:
-      "Shortcut Listener Unavailable"
-    case .disabledByTimeout:
-      "Shortcut Listener Timed Out"
-    case .disabledByUserInput:
-      "Shortcut Listener Disabled"
-    case .restartLoopDetected:
-      "Shortcut Listener Paused"
     }
   }
 }

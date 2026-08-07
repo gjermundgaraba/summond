@@ -14,8 +14,8 @@ struct AgentClientIntegrationTests {
   private static let statusA = AgentStatus(
     agentVersion: "A",
     accessibilityGranted: true,
-    inputMonitoringGranted: true,
-    tapActive: true,
+    accessibilityRequired: true,
+    shortcutsActive: true,
     configState: .ok,
     bindingCount: 1,
     lastReloadError: nil
@@ -23,8 +23,8 @@ struct AgentClientIntegrationTests {
   private static let statusB = AgentStatus(
     agentVersion: "B",
     accessibilityGranted: false,
-    inputMonitoringGranted: true,
-    tapActive: false,
+    accessibilityRequired: false,
+    shortcutsActive: false,
     configState: .fresh,
     bindingCount: 0,
     lastReloadError: nil
@@ -111,10 +111,9 @@ struct AgentClientIntegrationTests {
 
     let client = harness.makeClient()
     try await client.requestAccessibilityPrompt()
-    try await client.requestInputMonitoringPrompt()
 
-    #expect(harness.stub.promptCounts() == (accessibility: 1, inputMonitoring: 1))
-    #expect(harness.acceptedConnectionCount() == 2)
+    #expect(harness.stub.accessibilityPromptCount() == 1)
+    #expect(harness.acceptedConnectionCount() == 1)
   }
 }
 
@@ -129,8 +128,7 @@ private final class StubAgentXPCService: NSObject, SummondAgentXPC, @unchecked S
   private var heldReplies: [(Data) -> Void] = []
   private var statusCallArrived = false
   private var statusCallArrival: CheckedContinuation<Void, Never>?
-  private var accessibilityPromptCount = 0
-  private var inputMonitoringPromptCount = 0
+  private var storedAccessibilityPromptCount = 0
 
   init(statusPayload: Data, reloadPayload: Data) {
     self.statusPayload = statusPayload
@@ -162,17 +160,12 @@ private final class StubAgentXPCService: NSObject, SummondAgentXPC, @unchecked S
   }
 
   func requestAccessibilityPrompt(reply: @escaping (Data) -> Void) {
-    lock.withLock { accessibilityPromptCount += 1 }
+    lock.withLock { storedAccessibilityPromptCount += 1 }
     reply(Data())
   }
 
-  func requestInputMonitoringPrompt(reply: @escaping (Data) -> Void) {
-    lock.withLock { inputMonitoringPromptCount += 1 }
-    reply(Data())
-  }
-
-  func promptCounts() -> (accessibility: Int, inputMonitoring: Int) {
-    lock.withLock { (accessibilityPromptCount, inputMonitoringPromptCount) }
+  func accessibilityPromptCount() -> Int {
+    lock.withLock { storedAccessibilityPromptCount }
   }
 
   /// Suspends until `status` has been invoked at least once, resolving the

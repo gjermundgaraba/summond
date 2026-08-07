@@ -4,7 +4,6 @@ public enum SetupRequirement: Equatable, Sendable {
   case backgroundServiceNotRegistered
   case backgroundServiceNotFound
   case accessibilityPermission
-  case inputMonitoringPermission
 }
 
 /// A runtime problem that prevents Summond from operating normally.
@@ -18,8 +17,8 @@ public enum SystemIssue: Equatable, Sendable {
   case configurationInvalid(details: String?)
   case reloadFailed(details: String)
   case unresolvedApplications(bundleIDs: [String])
-  case eventTapFailure(EventTapFailureReason)
-  case eventTapInactive
+  case shortcutRegistrationFailures(shortcuts: [String])
+  case shortcutListenerInactive
 }
 
 /// The canonical interpretation of service and agent runtime state.
@@ -46,17 +45,14 @@ public enum SystemHealth: Equatable, Sendable {
   }
 
   /// Evaluates health in the status process, which can observe only the agent.
+  ///
+  /// Ordered by severity: configuration problems and a dead shortcut listener
+  /// are reported before a missing Accessibility permission, which is setup
+  /// work and only applies while a binding actually uses a window-managing
+  /// open mode -- shortcut delivery itself needs no permission.
   public static func evaluate(agentStatus: AgentStatus?) -> SystemHealth {
     guard let agentStatus else {
       return .degraded(.agentUnavailable)
-    }
-
-    guard agentStatus.accessibilityGranted else {
-      return .setupRequired(.accessibilityPermission)
-    }
-
-    guard agentStatus.inputMonitoringGranted else {
-      return .setupRequired(.inputMonitoringPermission)
     }
 
     switch agentStatus.configState {
@@ -79,12 +75,18 @@ public enum SystemHealth: Equatable, Sendable {
       )
     }
 
-    if let failure = agentStatus.tapFailureReason {
-      return .degraded(.eventTapFailure(failure))
+    guard agentStatus.shortcutsActive else {
+      return .degraded(.shortcutListenerInactive)
     }
 
-    guard agentStatus.tapActive else {
-      return .degraded(.eventTapInactive)
+    guard agentStatus.failedShortcuts.isEmpty else {
+      return .degraded(
+        .shortcutRegistrationFailures(shortcuts: agentStatus.failedShortcuts)
+      )
+    }
+
+    if agentStatus.accessibilityRequired && !agentStatus.accessibilityGranted {
+      return .setupRequired(.accessibilityPermission)
     }
 
     return .ready(activeShortcuts: agentStatus.bindingCount)

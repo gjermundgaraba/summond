@@ -23,33 +23,14 @@ struct SetupAssistantView: View {
         backgroundServiceRow
         permissionRow(
           title: "Accessibility",
-          explanation: "Allows Summond to direct application windows.",
+          explanation:
+            "Lets the New Window and Move Here behaviors direct application windows. "
+            + "Shortcuts themselves work without it.",
           systemImage: "hand.raised.fill",
           isGranted: accessibilityGranted,
           actionTitle: "Open Settings…",
-          action: {
-            startPermissionSetup(
-              pane: .accessibility,
-              requestAgentPrompt: { Task { await model.requestAccessibilitySetup() } },
-              fallback: model.openAccessibilitySettings
-            )
-          },
+          action: startAccessibilitySetup,
           accessibilityIdentifier: "setup.openAccessibilitySettingsButton"
-        )
-        permissionRow(
-          title: "Input Monitoring",
-          explanation: "Allows Summond to receive your global shortcuts.",
-          systemImage: "keyboard.badge.eye",
-          isGranted: inputMonitoringGranted,
-          actionTitle: "Open Settings…",
-          action: {
-            startPermissionSetup(
-              pane: .inputMonitoring,
-              requestAgentPrompt: { Task { await model.requestInputMonitoringSetup() } },
-              fallback: model.openInputMonitoringSettings
-            )
-          },
-          accessibilityIdentifier: "setup.openInputMonitoringSettingsButton"
         )
         if let error = model.permissionError {
           Text("Permission request failed: \(error)")
@@ -74,23 +55,19 @@ struct SetupAssistantView: View {
     }
   }
 
-  private func startPermissionSetup(
-    pane: PermissionFlowPane,
-    requestAgentPrompt: () -> Void,
-    fallback: () -> Void
-  ) {
-    requestAgentPrompt()
+  private func startAccessibilitySetup() {
+    Task { await model.requestAccessibilitySetup() }
 
     #if DEBUG
       if UITestHarness.isActive, !UITestHarness.allowsSystemPermissionFlow { return }
     #endif
 
     guard let agentAppURL = PermissionFlowHelperAppLocator.bundledAgentAppURL() else {
-      fallback()
+      model.openAccessibilitySettings()
       return
     }
 
-    permissionFlowController.authorize(pane: pane, suggestedAppURLs: [agentAppURL])
+    permissionFlowController.authorize(pane: .accessibility, suggestedAppURLs: [agentAppURL])
   }
 
   private var header: some View {
@@ -107,7 +84,7 @@ struct SetupAssistantView: View {
         Text(
           setupRequirementsComplete
             ? "Summond has the macOS access it needs."
-            : "Complete these three macOS requirements to use global shortcuts."
+            : "Complete these two macOS requirements to use Summond."
         )
         .foregroundStyle(.secondary)
       }
@@ -198,15 +175,10 @@ struct SetupAssistantView: View {
     model.serviceStatus == .enabled
       && model.agentStatus != nil
       && accessibilityGranted
-      && inputMonitoringGranted
   }
 
   private var accessibilityGranted: Bool {
     model.agentStatus?.accessibilityGranted == true
-  }
-
-  private var inputMonitoringGranted: Bool {
-    model.agentStatus?.inputMonitoringGranted == true
   }
 
   private var backgroundServiceState: SetupChecklistState {

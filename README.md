@@ -24,9 +24,8 @@ part of CI.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45+
 - [Tart](https://tart.run/) for `make test-tart` and `make smoke-tart`
 - Accessibility permission for the `Summond` entry that represents the
-  bundled `SummondAgent` helper
-- Input Monitoring permission for the `Summond` entry that represents the
-  bundled `SummondAgent` helper
+  bundled `SummondAgent` helper (used by the New Window and Move Here
+  behaviors; shortcuts themselves need no permission)
 - Login Items approval for the bundled LaunchAgent when macOS asks for it
 
 ## Install
@@ -44,8 +43,6 @@ the full release flow yourself.
    Login Items & Extensions and approve Summond.
 5. Grant Accessibility permission to the `Summond` helper entry in System
    Settings > Privacy & Security > Accessibility.
-6. Grant Input Monitoring permission to the `Summond` helper entry in System
-   Settings > Privacy & Security > Input Monitoring.
 
 The app installs its service from inside the bundle with `SMAppService`. The
 agent runs only in your Aqua login session.
@@ -61,19 +58,19 @@ agent runs only in your Aqua login session.
 
 Preparing to uninstall unregisters the background service and optional menu bar
 item before Summond quits. Deleting saved data removes Summond's local
-configuration and preferences. Accessibility and Input Monitoring permissions
-are managed separately by macOS and are not changed by this action.
+configuration and preferences. The Accessibility permission is managed
+separately by macOS and is not changed by this action.
 
 ## Privacy
 
-Summond processes keyboard events locally in the LaunchAgent to match
-configured shortcuts. It does not send telemetry, analytics, or keystroke data
-anywhere, and it makes no network requests for its core behavior. Only matching
-shortcuts are consumed; non-matching key events pass through unchanged. Normal
-logs record operational events; verbose logging (optional) adds more detail for
-debugging and may include shortcut-related information in the unified system
-log. Configuration is stored locally at
-`~/Library/Application Support/Summond/configuration.json`.
+Summond registers configured shortcuts as system hot keys; macOS delivers only
+those combos to the LaunchAgent, which never observes other keystrokes. It does
+not send telemetry, analytics, or keystroke data anywhere, and it makes no
+network requests for its core behavior. Only registered shortcuts are consumed;
+all other key events never reach Summond. Normal logs record operational
+events; verbose logging (optional) adds more detail for debugging and may
+include shortcut-related information in the unified system log. Configuration
+is stored locally at `~/Library/Application Support/Summond/configuration.json`.
 
 ## Configure Shortcuts
 
@@ -118,7 +115,7 @@ logged as a non-fatal failure.
 
 Enable the menu bar item from Summond. It is installed as the
 bundled login item `SummondStatus.app` and shows agent reachability,
-Accessibility, Input Monitoring, shortcut listener, and configuration state. Its
+Accessibility, shortcut listener, and configuration state. Its
 menu opens Summond and offers a contextual recovery action when attention is
 needed.
 
