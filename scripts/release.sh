@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release.sh [--local|--smoke] [options]
 
-Build, sign, verify, package, and notarize Summond.app.
+Build, sign, verify, package, and notarize Summond.app and Summond.dmg.
 
 Modes:
   default release mode
@@ -294,7 +294,8 @@ stage_app() {
   mkdir -p "$OUTPUT_DIR"
   APP_PATH="$OUTPUT_DIR/$APP_NAME"
   ZIP_PATH="$OUTPUT_DIR/Summond.zip"
-  rm -rf "$APP_PATH" "$ZIP_PATH"
+  DMG_PATH="$OUTPUT_DIR/Summond.dmg"
+  rm -rf "$APP_PATH" "$ZIP_PATH" "$DMG_PATH"
   ditto "$built_app" "$APP_PATH"
   plutil -replace CFBundleIdentifier -string net.garaba.summond "$APP_PATH/Contents/Info.plist"
 }
@@ -337,14 +338,64 @@ sign_artifacts() {
   sign_path "$APP_PATH"
 }
 
-verify_artifacts() {
+verify_app_signature() {
   log "Verifying signed app"
   codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-  if ! spctl -a -vv --type exec "$APP_PATH"; then
+}
+
+create_dmg() {
+  [[ "$SMOKE_MODE" -eq 0 ]] || return 0
+
+  log "Creating drag-install disk image"
+  (
+    local dmg_root
+    dmg_root="$(mktemp -d "${TMPDIR:-/tmp}/summond-dmg.XXXXXX")"
+    trap 'rm -rf -- "$dmg_root"' EXIT
+
+    ditto "$APP_PATH" "$dmg_root/$APP_NAME"
+    ln -s /Applications "$dmg_root/Applications"
+    hdiutil create \
+      -volname Summond \
+      -srcfolder "$dmg_root" \
+      -format UDZO \
+      -ov \
+      "$DMG_PATH"
+  )
+}
+
+sign_dmg() {
+  [[ -f "$DMG_PATH" ]] || return 0
+
+  log "Signing disk image"
+  codesign \
+    --force \
+    --timestamp \
+    --sign "$SIGNING_IDENTITY" \
+    "$DMG_PATH"
+}
+
+verify_dmg_signature() {
+  [[ -f "$DMG_PATH" ]] || return 0
+
+  log "Verifying signed disk image"
+  codesign --verify --verbose=2 "$DMG_PATH"
+  hdiutil verify "$DMG_PATH"
+}
+
+assess_gatekeeper() {
+  log "Assessing release artifacts with Gatekeeper"
+  local assessment_failed=0
+  spctl -a -vv --type exec "$APP_PATH" || assessment_failed=1
+  if [[ -f "$DMG_PATH" ]]; then
+    spctl -a -vv --type open --context context:primary-signature "$DMG_PATH" \
+      || assessment_failed=1
+  fi
+
+  if [[ "$assessment_failed" -eq 1 ]]; then
     if [[ "$LOCAL_MODE" -eq 1 ]]; then
-      warn "spctl assessment failed in local mode; continuing"
+      warn "Gatekeeper assessment failed in local mode; continuing"
     else
-      die "spctl assessment failed"
+      die "Gatekeeper assessment failed"
     fi
   fi
 }
@@ -381,7 +432,7 @@ verify_release_identity() {
 }
 
 zip_app() {
-  log "Creating notarization zip"
+  log "Creating distribution zip"
   rm -f "$ZIP_PATH"
   (
     cd "$OUTPUT_DIR"
@@ -395,19 +446,20 @@ notarize_and_staple() {
     return 0
   fi
 
-  log "Submitting to notary service"
-  xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  log "Submitting disk image to notary service"
+  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 
-  log "Stapling ticket"
+  log "Stapling app ticket"
   xcrun stapler staple "$APP_PATH"
 
-  log "Validating stapled ticket"
+  log "Validating app ticket"
   xcrun stapler validate "$APP_PATH"
 
-  verify_artifacts
+  log "Stapling disk image ticket"
+  xcrun stapler staple "$DMG_PATH"
 
-  log "Recreating zip with stapled app"
-  zip_app
+  log "Validating disk image ticket"
+  xcrun stapler validate "$DMG_PATH"
 }
 
 main() {
@@ -418,6 +470,7 @@ main() {
   require_tool codesign
   require_tool spctl
   require_tool ditto
+  require_tool hdiutil
   require_tool plutil
   require_tool security
 
@@ -433,12 +486,22 @@ main() {
   apply_launch_agent_spawn_constraint
   sign_artifacts
   verify_release_identity
-  verify_artifacts
-  zip_app
+  verify_app_signature
+  create_dmg
+  sign_dmg
+  verify_dmg_signature
   notarize_and_staple
+  zip_app
+  verify_release_identity
+  verify_app_signature
+  verify_dmg_signature
+  assess_gatekeeper
 
   log "Release artifacts ready"
   printf 'App: %s\nZip: %s\n' "$APP_PATH" "$ZIP_PATH"
+  if [[ -f "$DMG_PATH" ]]; then
+    printf 'DMG: %s\n' "$DMG_PATH"
+  fi
 }
 
 main "$@"

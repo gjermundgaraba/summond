@@ -25,9 +25,9 @@ help:
 		'  make lint-fix       Apply swift-format formatting' \
 		'  make icon           Regenerate Resources/AppIcon.icns from the vector generator' \
 		'  make install-local  Build, verify, and install a signed local release' \
-		'  make release-local  Create local signed Release app/zip without notarization' \
+		'  make release-local  Create local signed Release app/zip/dmg without notarization' \
 		'  make release-build  Alias for release-local' \
-		'  make release        Create Developer ID signed and notarized app/zip'
+		'  make release        Create Developer ID signed and notarized app/zip/dmg'
 
 project:
 	$(XCODEGEN) generate

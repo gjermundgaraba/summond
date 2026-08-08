@@ -213,8 +213,8 @@ make release-local
 ```
 
 `make release-build` is an alias for `make release-local`; it creates a signed
-Release app and zip without notarization for local validation. The artifacts are
-written to `dist/release/Summond.app` and `dist/release/Summond.zip`. Use
+Release app, zip, and drag-install DMG without notarization for local validation.
+The artifacts are written to `dist/release/`. Use
 `make install-local` to rebuild, verify, install, and relaunch using the identity
 and team of an existing `/Applications/Summond.app`. For a first install, pass
 `SIGNING_IDENTITY` and `TEAM_ID` as above.
@@ -229,6 +229,40 @@ CURRENT_PROJECT_VERSION=2 \
 SIGNING_IDENTITY="Developer ID Application: Your Name (ABCDEFGHIJ)" \
 make release
 ```
+
+The full release signs the app and DMG, submits the DMG to Apple's notary
+service, staples both tickets, and creates `Summond.zip` from the stapled app.
+
+### CI Releases
+
+`.github/workflows/release.yml` runs the same `make release` path for version
+tags such as `v1.1`, then publishes `Summond.dmg`, `Summond.zip`, and
+`SHA256SUMS` to GitHub Releases.
+
+1. Create a protected GitHub environment named `release`. Restrict deployment
+   tags to `v*` and add a required reviewer before storing credentials.
+2. Add environment variable `APPLE_TEAM_ID` with the 10-character Developer
+   Team ID.
+3. Add these environment secrets:
+
+   | Secret | Value |
+   | --- | --- |
+   | `DEVELOPER_ID_P12_BASE64` | Base64 of the exported Developer ID Application certificate and private key (`.p12`) |
+   | `DEVELOPER_ID_P12_PASSWORD` | Password used when exporting the `.p12` |
+   | `APPLE_API_KEY_P8_BASE64` | Base64 of an App Store Connect team API key (`.p8`) |
+   | `APPLE_API_KEY_ID` | API key ID |
+   | `APPLE_API_ISSUER_ID` | API issuer UUID |
+
+4. Push a version tag after CI passes:
+
+   ```bash
+   git tag -a v1.1 -m "Summond 1.1"
+   git push origin v1.1
+   ```
+
+Use a team App Store Connect API key; individual API keys cannot authenticate
+`notarytool`. The workflow imports credentials into a temporary keychain and
+deletes it after the release job.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the bundle layout, XPC boundary,
 storage format, and release signing flow.

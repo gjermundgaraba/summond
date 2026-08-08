@@ -270,10 +270,12 @@ Every signing command uses `--options runtime --force`. Release and local
 signing use `--timestamp`; smoke uses `--timestamp=none`. Release mode runs the
 lint and unit-test gates, then requires a Developer ID Application identity, a
 team ID, marketing and build versions, and a notarytool keychain profile. It
-zips with `ditto --keepParent`, submits with `notarytool --wait`, staples,
-validates, and reruns verification. Local mode signs with the provided identity
-and skips notarization. Signature verification is always fatal; only the local
-Gatekeeper assessment may warn and continue.
+creates and Developer ID signs a DMG containing the app and an `/Applications`
+shortcut, then submits that image with `notarytool --wait`. The accepted tickets
+are stapled to both the app and DMG; a zip is then created from the stapled app.
+Local mode signs with the provided identity and skips notarization. Signature
+verification is always fatal; only the local Gatekeeper assessment may warn and
+continue.
 
 ## Testability
 
