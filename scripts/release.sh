@@ -23,8 +23,9 @@ Modes:
       Used by scripts/smoke-in-vm.sh / make smoke-tart.
 
 Options:
-  --identity NAME          Signing identity. Default: SIGNING_IDENTITY env or
-                           "Developer ID Application".
+  --identity NAME          Signing identity. Default: SIGNING_IDENTITY env,
+                           "Apple Development" in local mode, or
+                           "Developer ID Application" in release mode.
   --team-id TEAM_ID        Apple Developer Team ID. Default: TEAM_ID env.
   --notary-profile NAME    notarytool keychain profile. Default:
                            NOTARY_PROFILE env.
@@ -51,7 +52,7 @@ APP_NAME="Summond.app"
 
 LOCAL_MODE=0
 SMOKE_MODE=0
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/release}"
@@ -191,6 +192,20 @@ require_signing_identity() {
   identity_hash="$(identity_hash_from_line "$identity_line")" \
     || die "could not parse signing identity hash from: $identity_line"
   SIGNING_IDENTITY="$identity_hash"
+
+  if [[ "$LOCAL_MODE" -eq 1 && -z "$TEAM_ID" ]]; then
+    local identity_name certificate_subject
+    identity_name="$(sed -n 's/^[^"]*"\([^"]*\)".*$/\1/p' <<<"$identity_line")"
+    [[ -n "$identity_name" ]] || die "could not parse signing identity name from: $identity_line"
+    certificate_subject="$(security find-certificate -c "$identity_name" -p \
+      | openssl x509 -noout -subject -nameopt RFC2253)" \
+      || die "could not read signing certificate '$identity_name'."
+    if [[ "$certificate_subject" =~ (^|,)OU=([A-Z0-9]{10})(,|$) ]]; then
+      TEAM_ID="${BASH_REMATCH[2]}"
+    else
+      die "could not determine the team id for signing certificate '$identity_name'."
+    fi
+  fi
 }
 
 validate_release_versions() {
@@ -464,6 +479,10 @@ notarize_and_staple() {
 
 main() {
   parse_args "$@"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="Developer ID Application"
+    [[ "$LOCAL_MODE" -eq 0 ]] || SIGNING_IDENTITY="Apple Development"
+  fi
 
   require_tool xcodebuild
   require_tool xcrun
@@ -473,6 +492,7 @@ main() {
   require_tool hdiutil
   require_tool plutil
   require_tool security
+  require_tool openssl
 
   if [[ "$LOCAL_MODE" -eq 1 ]]; then
     local_preflight

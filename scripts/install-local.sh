@@ -51,20 +51,7 @@ run_service_command() {
   return 1
 }
 
-installed_details=""
-if [[ -d "$TARGET_APP" ]]; then
-  installed_details="$(codesign -dvv "$TARGET_APP" 2>&1 || true)"
-elif [[ -d "$BUILT_APP" ]]; then
-  installed_details="$(codesign -dvv "$BUILT_APP" 2>&1 || true)"
-fi
-
-signing_identity="${SIGNING_IDENTITY:-$(awk -F= '/^Authority=/{print $2; exit}' <<<"$installed_details")}"
-team_id="${TEAM_ID:-$(awk -F= '/^TeamIdentifier=/{print $2; exit}' <<<"$installed_details")}"
-[[ -n "$signing_identity" ]] || die "set SIGNING_IDENTITY for the first local install."
-[[ -n "$team_id" ]] || die "set TEAM_ID for the first local install."
-
-SIGNING_IDENTITY="$signing_identity" TEAM_ID="$team_id" \
-  "$ROOT_DIR/scripts/release.sh" --local
+"$ROOT_DIR/scripts/release.sh" --local
 
 [[ -d "$BUILT_APP" ]] || die "signed app was not produced at $BUILT_APP."
 
