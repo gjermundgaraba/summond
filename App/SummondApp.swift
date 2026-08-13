@@ -34,6 +34,12 @@ struct SummondApp: App {
       }
       return
     }
+    if CommandLine.arguments.contains("--prepare-uninstall") {
+      Task { @MainActor in
+        exit(await model.prepareForUninstall(deleteSavedData: false) ? EXIT_SUCCESS : EXIT_FAILURE)
+      }
+      return
+    }
     Task { @MainActor in
       await model.start()
     }
