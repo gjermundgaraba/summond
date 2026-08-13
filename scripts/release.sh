@@ -166,20 +166,62 @@ identity_hash_from_line() {
   return 1
 }
 
+certificate_pem_for_hash() {
+  local expected_hash="$1"
+  awk -v expected_hash="$expected_hash" '
+    $0 == "SHA-1 hash: " expected_hash { matched = 1; next }
+    !complete && matched && $0 == "-----BEGIN CERTIFICATE-----" { capture = 1 }
+    capture { print }
+    capture && $0 == "-----END CERTIFICATE-----" { capture = 0; complete = 1 }
+    END { if (!complete) exit 1 }
+  '
+}
+
+team_id_from_subject() {
+  awk '
+    /^[[:space:]]*OU=/ {
+      sub(/^[[:space:]]*OU=/, "")
+      if ($0 ~ /^[A-Z0-9]+$/ && length($0) == 10) {
+        print
+        found = 1
+        exit
+      }
+    }
+    END { if (!found) exit 1 }
+  '
+}
+
+team_id_for_identity() {
+  local identity_hash="$1"
+  local certificate_pem certificate_subject
+  [[ -x /usr/bin/openssl ]] || die "required tool not found: /usr/bin/openssl"
+  certificate_pem="$(security find-certificate -a -Z -p 2>/dev/null \
+    | certificate_pem_for_hash "$identity_hash")" \
+    || die "could not find signing certificate '$identity_hash'."
+  certificate_subject="$(printf '%s\n' "$certificate_pem" \
+    | /usr/bin/openssl x509 -noout -subject -nameopt sep_multiline 2>/dev/null)" \
+    || die "could not read signing certificate '$identity_hash'."
+  printf '%s\n' "$certificate_subject" | team_id_from_subject \
+    || die "could not determine the team id for signing certificate '$identity_hash'."
+}
+
 require_signing_identity() {
   log "Checking signing identity"
   local requested_identity="$SIGNING_IDENTITY"
   local identity_lines
   identity_lines="$(matching_identity_lines "$requested_identity")"
   if [[ -z "$identity_lines" ]]; then
-    die "signing identity '$requested_identity' was not found. Run 'security find-identity -p codesigning -v' and pass --identity with an available identity."
+    if [[ "$LOCAL_MODE" -eq 1 ]]; then
+      die "signing identity '$requested_identity' was not found. Create an Apple Development certificate in Xcode, or set SIGNING_IDENTITY to one listed by 'security find-identity -p codesigning -v'."
+    fi
+    die "signing identity '$requested_identity' was not found. Run 'security find-identity -p codesigning -v' and set SIGNING_IDENTITY or pass --identity with an available identity."
   fi
 
   local identity_count
   identity_count="$(printf '%s\n' "$identity_lines" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
   if [[ "$identity_count" != "1" ]]; then
     printf '%s\n' "$identity_lines" >&2
-    die "signing identity '$requested_identity' matched $identity_count identities. Pass the exact certificate hash with --identity."
+    die "signing identity '$requested_identity' matched $identity_count identities. Set SIGNING_IDENTITY or pass --identity with an exact certificate hash."
   fi
 
   local identity_line
@@ -188,23 +230,18 @@ require_signing_identity() {
     die "release mode requires a Developer ID Application identity. Use --local for Apple Development signing."
   fi
 
-  local identity_hash
+  local identity_hash identity_name
   identity_hash="$(identity_hash_from_line "$identity_line")" \
     || die "could not parse signing identity hash from: $identity_line"
+  identity_name="${identity_line#*\"}"
+  identity_name="${identity_name%\"}"
+  [[ -n "$identity_name" && "$identity_name" != "$identity_line" ]] \
+    || die "could not parse signing identity name from: $identity_line"
+  log "Using signing identity $identity_name ($identity_hash)"
   SIGNING_IDENTITY="$identity_hash"
 
   if [[ "$LOCAL_MODE" -eq 1 && -z "$TEAM_ID" ]]; then
-    local identity_name certificate_subject
-    identity_name="$(sed -n 's/^[^"]*"\([^"]*\)".*$/\1/p' <<<"$identity_line")"
-    [[ -n "$identity_name" ]] || die "could not parse signing identity name from: $identity_line"
-    certificate_subject="$(security find-certificate -c "$identity_name" -p \
-      | openssl x509 -noout -subject -nameopt RFC2253)" \
-      || die "could not read signing certificate '$identity_name'."
-    if [[ "$certificate_subject" =~ (^|,)OU=([A-Z0-9]{10})(,|$) ]]; then
-      TEAM_ID="${BASH_REMATCH[2]}"
-    else
-      die "could not determine the team id for signing certificate '$identity_name'."
-    fi
+    TEAM_ID="$(team_id_for_identity "$identity_hash")"
   fi
 }
 
@@ -492,7 +529,6 @@ main() {
   require_tool hdiutil
   require_tool plutil
   require_tool security
-  require_tool openssl
 
   if [[ "$LOCAL_MODE" -eq 1 ]]; then
     local_preflight
@@ -524,4 +560,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

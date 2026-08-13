@@ -22,6 +22,8 @@ part of CI.
 - macOS 26.0+
 - Xcode 26+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.45+
+- An Apple Development signing identity in the keychain for `make install-local`
+  and `make release-local` (create one in Xcode > Settings > Accounts)
 - [Tart](https://tart.run/) for `make test-tart` and `make smoke-tart`
 - Accessibility permission for the `Summond` entry that represents the
   bundled `SummondAgent` helper (used by the New Window and Move Here
@@ -214,7 +216,8 @@ make release-local
 Release app, zip, and drag-install DMG without notarization for local validation.
 The artifacts are written to `dist/release/`. Local builds automatically use the
 available Apple Development identity and its team. If the keychain contains more
-than one, set `SIGNING_IDENTITY` to the desired certificate name or hash. Use
+than one, set `SIGNING_IDENTITY` to the desired certificate name or SHA-1 hash;
+`TEAM_ID` is derived from that exact certificate unless explicitly set. Use
 `make install-local` to rebuild, verify, install, and relaunch.
 
 Create Developer ID artifacts and submit them for notarization:
