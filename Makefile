@@ -1,4 +1,4 @@
-.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon install-local release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon install-local uninstall-local release-local release-build release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
@@ -25,6 +25,7 @@ help:
 		'  make lint-fix       Apply swift-format formatting' \
 		'  make icon           Regenerate Resources/AppIcon.icns from the vector generator' \
 		'  make install-local  Build, verify, and install a signed local release' \
+		'  make uninstall-local  Unregister services and move the installed app to the Trash' \
 		'  make release-local  Create local signed Release app/zip/dmg without notarization' \
 		'  make release-build  Alias for release-local' \
 		'  make release        Create Developer ID signed and notarized app/zip/dmg'
@@ -68,6 +69,7 @@ tart-ensure-base:
 
 lint:
 	xcrun swift format lint --strict --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
+	bash -n scripts/*.sh
 
 lint-fix:
 	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
@@ -79,6 +81,9 @@ icon:
 
 install-local:
 	scripts/install-local.sh
+
+uninstall-local:
+	scripts/uninstall-local.sh
 
 release-local:
 	scripts/release.sh --local

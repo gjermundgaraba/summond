@@ -54,6 +54,8 @@ run_service_command() {
 installed_details=""
 if [[ -d "$TARGET_APP" ]]; then
   installed_details="$(codesign -dvv "$TARGET_APP" 2>&1 || true)"
+elif [[ -d "$BUILT_APP" ]]; then
+  installed_details="$(codesign -dvv "$BUILT_APP" 2>&1 || true)"
 fi
 
 signing_identity="${SIGNING_IDENTITY:-$(awk -F= '/^Authority=/{print $2; exit}' <<<"$installed_details")}"
