@@ -239,8 +239,15 @@ service, staples both tickets, and creates `Summond.zip` from the stapled app.
 tags such as `v1.1`, then publishes `Summond.dmg`, `Summond.zip`, and
 `SHA256SUMS` to GitHub Releases.
 
-1. Create a protected GitHub environment named `release`. Restrict deployment
-   tags to `v*` and add a required reviewer before storing credentials.
+Before publishing, maintainers can run the workflow manually from the Actions
+tab. A manual run signs and notarizes the same artifacts, then uploads them as a
+seven-day workflow artifact without creating a tag or GitHub Release. Manual
+runs must use `main` and require approval from the `release` environment's
+reviewer.
+
+1. Create a protected GitHub environment named `release`. Allow deployments
+   from `main` and tags matching `v*`, and add a required reviewer before
+   storing credentials.
 2. Add environment variable `APPLE_TEAM_ID` with the 10-character Developer
    Team ID.
 3. Add these environment secrets:

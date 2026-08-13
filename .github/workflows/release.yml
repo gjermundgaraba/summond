@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: Version to embed in dry-run artifacts
+        required: true
+        default: "1.0"
+        type: string
 
 permissions:
   contents: write
@@ -21,12 +28,19 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Read version
+        env:
+          REQUESTED_VERSION: ${{ inputs.marketing_version }}
         run: |
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]] || {
-            echo "Tag must be v followed by one to three numeric components." >&2
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$REQUESTED_VERSION"
+          fi
+          [[ "$version" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || {
+            echo "Version must contain one to three numeric components." >&2
             exit 1
           }
-          echo "MARKETING_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "MARKETING_VERSION=$version" >> "$GITHUB_ENV"
           echo "CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Install XcodeGen
@@ -84,14 +98,31 @@ jobs:
           TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: make release
 
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create checksums
         run: |
           shasum -a 256 \
             dist/release/Summond.dmg \
             dist/release/Summond.zip \
             > dist/release/SHA256SUMS
+
+      - name: Upload dry-run artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: summond-${{ env.MARKETING_VERSION }}-build-${{ env.CURRENT_PROJECT_VERSION }}
+          path: |
+            dist/release/Summond.dmg
+            dist/release/Summond.zip
+            dist/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           gh release create "$GITHUB_REF_NAME" \
             dist/release/Summond.dmg \
             dist/release/Summond.zip \
