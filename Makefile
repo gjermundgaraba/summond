@@ -69,6 +69,7 @@ tart-ensure-base:
 
 lint:
 	xcrun swift format lint --strict --recursive Core/Sources Core/Tests App AppTests Agent Status UITests
+	bash -n scripts/*.sh
 
 lint-fix:
 	xcrun swift format format --in-place --recursive Core/Sources Core/Tests App AppTests Agent Status UITests

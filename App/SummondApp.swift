@@ -35,8 +35,14 @@ struct SummondApp: App {
       return
     }
     if CommandLine.arguments.contains("--prepare-uninstall") {
+      NSApplication.shared.setActivationPolicy(.prohibited)
       Task { @MainActor in
-        exit(await model.prepareForUninstall(deleteSavedData: false) ? EXIT_SUCCESS : EXIT_FAILURE)
+        guard await model.prepareForUninstall(deleteSavedData: false) else {
+          let message = model.uninstallPreparationError ?? "Uninstall preparation failed."
+          FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+          exit(EXIT_FAILURE)
+        }
+        exit(EXIT_SUCCESS)
       }
       return
     }
