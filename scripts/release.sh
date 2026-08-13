@@ -23,8 +23,9 @@ Modes:
       Used by scripts/smoke-in-vm.sh / make smoke-tart.
 
 Options:
-  --identity NAME          Signing identity. Default: SIGNING_IDENTITY env or
-                           "Developer ID Application".
+  --identity NAME          Signing identity. Default: SIGNING_IDENTITY env,
+                           "Apple Development" in local mode, or
+                           "Developer ID Application" in release mode.
   --team-id TEAM_ID        Apple Developer Team ID. Default: TEAM_ID env.
   --notary-profile NAME    notarytool keychain profile. Default:
                            NOTARY_PROFILE env.
@@ -51,7 +52,7 @@ APP_NAME="Summond.app"
 
 LOCAL_MODE=0
 SMOKE_MODE=0
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/release}"
@@ -165,20 +166,62 @@ identity_hash_from_line() {
   return 1
 }
 
+certificate_pem_for_hash() {
+  local expected_hash="$1"
+  awk -v expected_hash="$expected_hash" '
+    $0 == "SHA-1 hash: " expected_hash { matched = 1; next }
+    !complete && matched && $0 == "-----BEGIN CERTIFICATE-----" { capture = 1 }
+    capture { print }
+    capture && $0 == "-----END CERTIFICATE-----" { capture = 0; complete = 1 }
+    END { if (!complete) exit 1 }
+  '
+}
+
+team_id_from_subject() {
+  awk '
+    /^[[:space:]]*OU=/ {
+      sub(/^[[:space:]]*OU=/, "")
+      if ($0 ~ /^[A-Z0-9]+$/ && length($0) == 10) {
+        print
+        found = 1
+        exit
+      }
+    }
+    END { if (!found) exit 1 }
+  '
+}
+
+team_id_for_identity() {
+  local identity_hash="$1"
+  local certificate_pem certificate_subject
+  [[ -x /usr/bin/openssl ]] || die "required tool not found: /usr/bin/openssl"
+  certificate_pem="$(security find-certificate -a -Z -p 2>/dev/null \
+    | certificate_pem_for_hash "$identity_hash")" \
+    || die "could not find signing certificate '$identity_hash'."
+  certificate_subject="$(printf '%s\n' "$certificate_pem" \
+    | /usr/bin/openssl x509 -noout -subject -nameopt sep_multiline 2>/dev/null)" \
+    || die "could not read signing certificate '$identity_hash'."
+  printf '%s\n' "$certificate_subject" | team_id_from_subject \
+    || die "could not determine the team id for signing certificate '$identity_hash'."
+}
+
 require_signing_identity() {
   log "Checking signing identity"
   local requested_identity="$SIGNING_IDENTITY"
   local identity_lines
   identity_lines="$(matching_identity_lines "$requested_identity")"
   if [[ -z "$identity_lines" ]]; then
-    die "signing identity '$requested_identity' was not found. Run 'security find-identity -p codesigning -v' and pass --identity with an available identity."
+    if [[ "$LOCAL_MODE" -eq 1 ]]; then
+      die "signing identity '$requested_identity' was not found. Create an Apple Development certificate in Xcode, or set SIGNING_IDENTITY to one listed by 'security find-identity -p codesigning -v'."
+    fi
+    die "signing identity '$requested_identity' was not found. Run 'security find-identity -p codesigning -v' and set SIGNING_IDENTITY or pass --identity with an available identity."
   fi
 
   local identity_count
   identity_count="$(printf '%s\n' "$identity_lines" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
   if [[ "$identity_count" != "1" ]]; then
     printf '%s\n' "$identity_lines" >&2
-    die "signing identity '$requested_identity' matched $identity_count identities. Pass the exact certificate hash with --identity."
+    die "signing identity '$requested_identity' matched $identity_count identities. Set SIGNING_IDENTITY or pass --identity with an exact certificate hash."
   fi
 
   local identity_line
@@ -187,10 +230,19 @@ require_signing_identity() {
     die "release mode requires a Developer ID Application identity. Use --local for Apple Development signing."
   fi
 
-  local identity_hash
+  local identity_hash identity_name
   identity_hash="$(identity_hash_from_line "$identity_line")" \
     || die "could not parse signing identity hash from: $identity_line"
+  identity_name="${identity_line#*\"}"
+  identity_name="${identity_name%\"}"
+  [[ -n "$identity_name" && "$identity_name" != "$identity_line" ]] \
+    || die "could not parse signing identity name from: $identity_line"
+  log "Using signing identity $identity_name ($identity_hash)"
   SIGNING_IDENTITY="$identity_hash"
+
+  if [[ "$LOCAL_MODE" -eq 1 && -z "$TEAM_ID" ]]; then
+    TEAM_ID="$(team_id_for_identity "$identity_hash")"
+  fi
 }
 
 validate_release_versions() {
@@ -464,6 +516,10 @@ notarize_and_staple() {
 
 main() {
   parse_args "$@"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="Developer ID Application"
+    [[ "$LOCAL_MODE" -eq 0 ]] || SIGNING_IDENTITY="Apple Development"
+  fi
 
   require_tool xcodebuild
   require_tool xcrun
@@ -504,4 +560,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
