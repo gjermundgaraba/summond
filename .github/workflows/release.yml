@@ -99,11 +99,8 @@ jobs:
         run: make release
 
       - name: Create checksums
-        run: |
-          shasum -a 256 \
-            dist/release/Summond.dmg \
-            dist/release/Summond.zip \
-            > dist/release/SHA256SUMS
+        working-directory: dist/release
+        run: shasum -a 256 Summond.dmg Summond.zip > SHA256SUMS
 
       - name: Upload dry-run artifacts
         if: github.event_name == 'workflow_dispatch'
