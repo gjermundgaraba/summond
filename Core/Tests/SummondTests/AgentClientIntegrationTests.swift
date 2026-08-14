@@ -14,7 +14,6 @@ struct AgentClientIntegrationTests {
   private static let statusA = AgentStatus(
     agentVersion: "A",
     accessibilityGranted: true,
-    accessibilityRequired: true,
     shortcutsActive: true,
     configState: .ok,
     bindingCount: 1,
@@ -23,7 +22,6 @@ struct AgentClientIntegrationTests {
   private static let statusB = AgentStatus(
     agentVersion: "B",
     accessibilityGranted: false,
-    accessibilityRequired: false,
     shortcutsActive: false,
     configState: .fresh,
     bindingCount: 0,

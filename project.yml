@@ -12,6 +12,18 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_APP_SANDBOX: NO
     CODE_SIGN_STYLE: Automatic
+    SUMMOND_APP_PRODUCT_NAME: Summond
+    SUMMOND_AGENT_PRODUCT_NAME: SummondAgent
+    SUMMOND_STATUS_PRODUCT_NAME: SummondStatus
+    SUMMOND_APP_BUNDLE_IDENTIFIER: net.garaba.summond
+    SUMMOND_BUILD_HOST_BUNDLE_IDENTIFIER: $(SUMMOND_APP_BUNDLE_IDENTIFIER)
+    SUMMOND_AGENT_BUNDLE_IDENTIFIER: $(SUMMOND_APP_BUNDLE_IDENTIFIER).agent
+    SUMMOND_STATUS_BUNDLE_IDENTIFIER: $(SUMMOND_APP_BUNDLE_IDENTIFIER).ui
+    SUMMOND_AGENT_MACH_SERVICE: $(SUMMOND_AGENT_BUNDLE_IDENTIFIER).xpc
+    SUMMOND_AGENT_PLIST_NAME: $(SUMMOND_AGENT_BUNDLE_IDENTIFIER).plist
+    SUMMOND_DISPLAY_NAME: $(SUMMOND_APP_PRODUCT_NAME)
+    SUMMOND_STATUS_DISPLAY_NAME: $(SUMMOND_DISPLAY_NAME) Menu Bar
+    SUMMOND_URL_SCHEME: summond
 packages:
   SummondCore:
     path: Core
@@ -41,20 +53,20 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(SUMMOND_APP_BUNDLE_IDENTIFIER)
-        SUMMOND_APP_BUNDLE_IDENTIFIER: net.garaba.summond
+        PRODUCT_NAME: $(SUMMOND_APP_PRODUCT_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(SUMMOND_BUILD_HOST_BUNDLE_IDENTIFIER)
         INFOPLIST_FILE: App/Info.plist
     postBuildScripts:
       - name: Embed Agent and Login Item
         inputFiles:
-          - $(BUILT_PRODUCTS_DIR)/SummondAgent.app/Contents/MacOS/SummondAgent
+          - $(BUILT_PRODUCTS_DIR)/$(SUMMOND_AGENT_PRODUCT_NAME).app/Contents/MacOS/$(SUMMOND_AGENT_PRODUCT_NAME)
           - $(PROJECT_DIR)/App/Resources/net.garaba.summond.agent.plist
           - $(PROJECT_DIR)/scripts/apply-launch-agent-spawn-constraint.sh
-          - $(BUILT_PRODUCTS_DIR)/SummondStatus.app/Contents/MacOS/SummondStatus
+          - $(BUILT_PRODUCTS_DIR)/$(SUMMOND_STATUS_PRODUCT_NAME).app/Contents/MacOS/$(SUMMOND_STATUS_PRODUCT_NAME)
         outputFiles:
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/MacOS/SummondAgent.app
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/net.garaba.summond.agent.plist
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/SummondStatus.app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/MacOS/$(SUMMOND_AGENT_PRODUCT_NAME).app
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/$(SUMMOND_AGENT_PLIST_NAME)
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LoginItems/$(SUMMOND_STATUS_PRODUCT_NAME).app
         script: |
           set -euo pipefail
 
@@ -68,17 +80,27 @@ targets:
           # The agent lives in Contents/MacOS (a standard code location) so the
           # outer app signs it as nested code with its own cdhash, rather than
           # sealing it as a flat resource tree (which Contents/Resources does).
-          rm -rf "$macos/SummondAgent.app"
-          cp -R "$BUILT_PRODUCTS_DIR/SummondAgent.app" "$macos/SummondAgent.app"
+          rm -rf "$macos/$SUMMOND_AGENT_PRODUCT_NAME.app"
+          cp -R \
+            "$BUILT_PRODUCTS_DIR/$SUMMOND_AGENT_PRODUCT_NAME.app" \
+            "$macos/$SUMMOND_AGENT_PRODUCT_NAME.app"
 
-          agent_plist="$launch_agents/net.garaba.summond.agent.plist"
+          agent_plist="$launch_agents/$SUMMOND_AGENT_PLIST_NAME"
           cp "$PROJECT_DIR/App/Resources/net.garaba.summond.agent.plist" "$agent_plist"
+          agent_program="Contents/MacOS/$SUMMOND_AGENT_PRODUCT_NAME.app/Contents/MacOS/$SUMMOND_AGENT_PRODUCT_NAME"
+          plutil -replace Label -string "$SUMMOND_AGENT_BUNDLE_IDENTIFIER" "$agent_plist"
+          plutil -replace BundleProgram -string "$agent_program" "$agent_plist"
+          plutil -replace MachServices -json "{\"$SUMMOND_AGENT_MACH_SERVICE\":true}" "$agent_plist"
+          plutil -replace AssociatedBundleIdentifiers -string "$SUMMOND_APP_BUNDLE_IDENTIFIER" "$agent_plist"
           bash "$PROJECT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" \
             "$agent_plist" \
-            "${DEVELOPMENT_TEAM:-}"
+            "${DEVELOPMENT_TEAM:-}" \
+            "$SUMMOND_AGENT_BUNDLE_IDENTIFIER"
 
-          rm -rf "$login_items/SummondStatus.app"
-          cp -R "$BUILT_PRODUCTS_DIR/SummondStatus.app" "$login_items/SummondStatus.app"
+          rm -rf "$login_items/$SUMMOND_STATUS_PRODUCT_NAME.app"
+          cp -R \
+            "$BUILT_PRODUCTS_DIR/$SUMMOND_STATUS_PRODUCT_NAME.app" \
+            "$login_items/$SUMMOND_STATUS_PRODUCT_NAME.app"
   SummondAgent:
     type: application
     platform: macOS
@@ -92,7 +114,8 @@ targets:
         product: SummondCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.agent
+        PRODUCT_NAME: $(SUMMOND_AGENT_PRODUCT_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(SUMMOND_AGENT_BUNDLE_IDENTIFIER)
         INFOPLIST_FILE: Agent/Info.plist
   SummondStatus:
     type: application
@@ -107,7 +130,8 @@ targets:
         product: SummondCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.garaba.summond.ui
+        PRODUCT_NAME: $(SUMMOND_STATUS_PRODUCT_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(SUMMOND_STATUS_BUNDLE_IDENTIFIER)
         INFOPLIST_FILE: Status/Info.plist
   SummondTests:
     type: bundle.unit-test

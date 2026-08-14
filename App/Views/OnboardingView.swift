@@ -24,8 +24,7 @@ struct SetupAssistantView: View {
         permissionRow(
           title: "Accessibility",
           explanation:
-            "Lets the New Window and Move Here behaviors direct application windows. "
-            + "Shortcuts themselves work without it.",
+            "Required so Summond can direct application windows.",
           systemImage: "hand.raised.fill",
           isGranted: accessibilityGranted,
           actionTitle: "Open Settings…",
@@ -52,6 +51,17 @@ struct SetupAssistantView: View {
     .fixedSize(horizontal: false, vertical: true)
     .onDisappear {
       permissionFlowController.closePanel()
+    }
+    .task {
+      while !Task.isCancelled, !accessibilityGranted {
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        await model.refresh()
+      }
+    }
+    .onChange(of: accessibilityGranted) { _, isGranted in
+      guard isGranted else { return }
+      permissionFlowController.closePanel(returnToPreviousApp: true)
     }
   }
 
@@ -190,7 +200,8 @@ struct SetupAssistantView: View {
     switch model.serviceStatus {
     case .enabled:
       if model.agentStatus == nil {
-        return model.serviceError ?? "The service is enabled but isn't responding."
+        return model.serviceError ?? model.agentConnectionError
+          ?? "The service is enabled but isn't responding."
       }
       return "Runs your shortcuts even when the Summond window is closed."
     case .requiresApproval:

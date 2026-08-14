@@ -184,13 +184,11 @@
       let configState: AgentConfigurationState
       let bindingCount: Int
       let configurationError: String?
-      var accessibilityRequired = false
 
       do {
         if let configuration = try store.load() {
           configState = .ok
           bindingCount = configuration.bindings.count
-          accessibilityRequired = configuration.bindings.contains { $0.target.mode != .launch }
         } else {
           configState = .fresh
           bindingCount = 0
@@ -209,7 +207,6 @@
       return AgentStatus(
         agentVersion: "uitest",
         accessibilityGranted: accessibilityGranted,
-        accessibilityRequired: accessibilityRequired,
         shortcutsActive: true,
         configState: configState,
         bindingCount: bindingCount,

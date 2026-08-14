@@ -73,7 +73,7 @@ public protocol ConfigurationStore: Sendable {
 
 public struct FileConfigurationStore: ConfigurationStore {
   public static let defaultURL = URL.applicationSupportDirectory
-    .appendingPathComponent("Summond", isDirectory: true)
+    .appendingPathComponent(SummondBundleIdentifiers.configurationDirectoryName, isDirectory: true)
     .appendingPathComponent("configuration.json")
 
   public let url: URL

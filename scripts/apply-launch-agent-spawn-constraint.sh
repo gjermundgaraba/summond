@@ -2,17 +2,17 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s LAUNCH_AGENT_PLIST TEAM_ID [SIGNING_IDENTIFIER]\n' "$0" >&2
+  printf 'Usage: %s LAUNCH_AGENT_PLIST TEAM_ID SIGNING_IDENTIFIER\n' "$0" >&2
 }
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
+if [[ $# -ne 3 ]]; then
   usage
   exit 64
 fi
 
 agent_plist="$1"
 team_id="$2"
-signing_identifier="${3:-net.garaba.summond.agent}"
+signing_identifier="$3"
 
 [[ -n "$team_id" ]] || exit 0
 [[ "$team_id" =~ ^[A-Z0-9]{10}$ ]] || {

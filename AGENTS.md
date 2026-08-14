@@ -11,5 +11,6 @@ concurrency, failure semantics, bundle layout, and signing/notarization notes.
 `make lint`, `make core-test`, and `make app-test`.
 
 Use `make app-test`, not raw `xcodebuild test`, so test builds cannot replace
-the production service registration. Use `make install-local` for local installs
-and reinstalls; do not copy builds into `/Applications` manually.
+the production service registration. `make install-local` installs the isolated
+`Summond Local.app`; use `make uninstall-local` to remove it. Do not copy builds
+into `/Applications` manually.
