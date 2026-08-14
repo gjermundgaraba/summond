@@ -30,3 +30,22 @@ subject=$'subject=\n    CN=Example\\,OU=WRONGTEAM1\n    OU=RIGHTTEAM1\n    C=US'
 if printf 'subject=\n    OU=TOO-SHORT\n' | team_id_from_subject >/dev/null; then
   exit 1
 fi
+
+LOCAL_MODE=0
+SMOKE_MODE=0
+OUTPUT_DIR=""
+configure_artifact
+[[ "$APP_NAME" == "Summond.app" ]]
+[[ "$APP_BUNDLE_IDENTIFIER" == "net.garaba.summond" ]]
+[[ "$AGENT_PLIST_NAME" == "net.garaba.summond.agent.plist" ]]
+
+LOCAL_MODE=1
+OUTPUT_DIR=""
+configure_artifact
+[[ "$APP_NAME" == "Summond Local.app" ]]
+[[ "$APP_BUNDLE_IDENTIFIER" == "net.garaba.summond.local" ]]
+[[ "$AGENT_BUNDLE_IDENTIFIER" == "net.garaba.summond.local.agent" ]]
+[[ "$STATUS_BUNDLE_IDENTIFIER" == "net.garaba.summond.local.ui" ]]
+[[ "$AGENT_MACH_SERVICE" == "net.garaba.summond.local.agent.xpc" ]]
+[[ "$AGENT_PLIST_NAME" == "net.garaba.summond.local.agent.plist" ]]
+[[ "$OUTPUT_DIR" == "$ROOT_DIR/dist/local" ]]

@@ -6,6 +6,15 @@ import Testing
 
 @Suite("Configuration store")
 struct ConfigurationStoreTests {
+  @Test("Local runtime is selected only for the local bundle family")
+  func localRuntimeSelection() {
+    #expect(SummondBundleIdentifiers.isLocal(bundleIdentifier: "net.garaba.summond.local"))
+    #expect(SummondBundleIdentifiers.isLocal(bundleIdentifier: "net.garaba.summond.local.agent"))
+    #expect(!SummondBundleIdentifiers.isLocal(bundleIdentifier: "net.garaba.summond"))
+    #expect(!SummondBundleIdentifiers.isLocal(bundleIdentifier: "net.garaba.summond.locality"))
+    #expect(!SummondBundleIdentifiers.isLocal(bundleIdentifier: nil))
+  }
+
   @Test("Missing data loads as a fresh empty configuration")
   func absentDataLoadsFresh() throws {
     #expect(try InMemoryConfigurationStore().load() == nil)

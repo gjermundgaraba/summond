@@ -63,8 +63,8 @@ cdhash instead of sealing it as a flat resource tree. The LaunchAgent plist's
 - Loads configuration from the shared Application Support file.
 - Registers configured shortcuts as system hot keys (`RegisterEventHotKey`),
   which needs no permission and keeps working while another process holds
-  secure keyboard entry. Accessibility is only needed by the New Window and
-  Move open modes.
+  secure keyboard entry. Summond still treats Accessibility as an unconditional
+  setup requirement because its window-management behaviors depend on it.
 - Exports XPC status, reload, and Accessibility-prompt requests.
 - Uses `KeepAlive` crash-only semantics: launchd restarts it after an
   unsuccessful exit, but it is not a polling supervisor.
@@ -159,9 +159,9 @@ require disabling SIP.
 
 ## Failure Semantics
 
-- Shortcut delivery needs no permission. Missing Accessibility only degrades
-  the New Window and Move open modes; those failures are logged at open time
-  and Accessibility state is surfaced through status.
+- Missing Accessibility prevents ready health. Higher-priority configuration or
+  listener failures may be surfaced first; hot-key delivery itself uses Carbon
+  and may continue while the required window-management access is missing.
 - Hot-key handler installation failure and per-binding registration failures
   are logged and surfaced through status; failed bindings do not disable the
   rest.
@@ -252,6 +252,22 @@ flows also add a generated `SpawnConstraint` with:
 - `team-identifier`: the signing team ID
 - `signing-identifier`: `net.garaba.summond.agent`
 
+### Local Development Flavor
+
+`make install-local` installs `/Applications/Summond Local.app` without
+replacing the published app. The local flavor uses the
+`net.garaba.summond.local` identifier family, `summond-local://` URLs,
+`net.garaba.summond.local.agent.xpc`, and
+`~/Library/Application Support/Summond Local/`. Its LaunchAgent, login item,
+preferences, logs, and Accessibility permission are therefore independent of
+production. `make uninstall-local` unregisters and removes only this flavor.
+
+The app records the last registered `CFBundleVersion` independently for each
+service. On the first launch of a new build, it re-registers each enabled service
+so ServiceManagement uses the updated executable; enabled services also repair
+themselves when they stop responding or running. Local rebuilds commonly keep
+the same build number, so `make install-local` refreshes them explicitly.
+
 ## Signing and Notarization
 
 Distribution is Developer ID outside the Mac App Store. Hardened runtime is
@@ -273,9 +289,9 @@ team ID, marketing and build versions, and a notarytool keychain profile. It
 creates and Developer ID signs a DMG containing the app and an `/Applications`
 shortcut, then submits that image with `notarytool --wait`. The accepted tickets
 are stapled to both the app and DMG; a zip is then created from the stapled app.
-Local mode signs with the provided identity and skips notarization. Signature
-verification is always fatal; only the local Gatekeeper assessment may warn and
-continue.
+Local mode builds the isolated `Summond Local` flavor, signs with the provided
+identity, and skips notarization. Signature verification is always fatal; only
+the local Gatekeeper assessment may warn and continue.
 
 ## Testability
 

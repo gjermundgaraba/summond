@@ -103,7 +103,7 @@ struct SettingsView: View {
         LabeledContent("Background service", value: model.serviceStatus.settingsTitle)
 
         Button("Open Setup Assistant…") {
-          if let url = URL(string: "summond://setup") {
+          if let url = URL(string: "\(SummondBundleIdentifiers.urlScheme)://setup") {
             openURL(url)
           }
         }
@@ -195,6 +195,14 @@ struct SettingsView: View {
           }
         }
 
+        if let error = model.agentConnectionError {
+          LabeledContent("Agent connection error") {
+            Text(error)
+              .foregroundStyle(.red)
+              .textSelection(.enabled)
+          }
+        }
+
         if let error = model.permissionError {
           LabeledContent("Permission request error") {
             Text(error)
@@ -274,7 +282,7 @@ extension SystemHealth {
       case .backgroundServiceNotFound:
         return "The background service could not be found."
       case .accessibilityPermission:
-        return "Accessibility permission is required for the New Window and Move Here behaviors."
+        return "Accessibility permission is required for Summond to be ready."
       }
     case .degraded(let issue):
       switch issue {

@@ -280,6 +280,19 @@ struct SummondModelTests {
     #expect(model.serviceError == serviceError)
   }
 
+  @Test("Failed status explains an enabled but unresponsive service")
+  func failedStatusExplainsEnabledService() async {
+    let model = makeModel(
+      agentClient: MockAgentClient(statusError: MockError.statusFailed),
+      agentService: StubLoginItemService(status: .enabled)
+    )
+
+    await model.refresh()
+
+    #expect(model.agentConnectionError == MockError.statusFailed.localizedDescription)
+    #expect(model.serviceError == nil)
+  }
+
   @Test("Cancelled refresh preserves the last verified status")
   func cancelledRefreshPreservesStatus() async {
     let agent = CancellableAgentClient()
@@ -291,7 +304,7 @@ struct SummondModelTests {
     let refresh = Task { await model.refresh() }
     await agent.waitUntilSecondCallStarts()
     refresh.cancel()
-    await refresh.value
+    _ = await refresh.value
 
     #expect(model.health == .ready(activeShortcuts: 0))
   }
@@ -306,8 +319,9 @@ struct SummondModelTests {
 
     #expect(await model.saveShortcut(draft(key: "a", mods: ["cmd"])) == .saved)
     await agent.resumeStatus()
-    await refresh.value
+    let staleStatus = await refresh.value
 
+    #expect(staleStatus?.bindingCount == 1)
     #expect(model.health == .ready(activeShortcuts: 7))
   }
 
@@ -345,90 +359,198 @@ struct SummondModelTests {
     #expect(operations.values == ["agent.unregister", "agent.register"])
   }
 
-  @Test("Repair unregisters, waits, then registers each stale enabled service")
-  func repairStaleRegistrationsOrder() async {
+  @Test("Restart retries registration without unregistering again")
+  func restartServiceRetriesRegistration() async {
     let operations = OperationRecorder()
-    let statusItem = RecordingLoginItemService(
-      name: "status", status: .enabled, operations: operations)
-    let agent = RecordingLoginItemService(
-      name: "agent", status: .enabled, operations: operations)
-    let model = makeModel(
-      agentClient: MockAgentClient(statusError: MockError.statusFailed),
-      agentService: agent,
-      statusItemService: statusItem,
-      repairSleep: { _ in operations.record("sleep") }
-    )
-
-    await model.start()
-
-    #expect(
-      operations.values == [
-        "status.unregister", "sleep", "status.register",
-        "agent.unregister", "sleep", "agent.register",
-      ])
-    #expect(model.statusItemError == nil)
-    #expect(model.serviceError == nil)
-  }
-
-  @Test("Repair retries a failed register without unregistering again")
-  func repairRetriesRegisterWithoutSecondUnregister() async {
-    let operations = OperationRecorder()
-    let agent = RecordingLoginItemService(
+    let sleeps = OperationRecorder()
+    let service = RecordingLoginItemService(
       name: "agent",
       status: .enabled,
       operations: operations,
       registerErrors: [MockError.registerFailed, MockError.registerFailed]
     )
     let model = makeModel(
-      agentClient: MockAgentClient(statusError: MockError.statusFailed),
-      agentService: agent,
-      repairSleep: { _ in operations.record("sleep") }
+      agentService: service,
+      serviceSleep: { _ in sleeps.record("sleep") }
+    )
+
+    #expect(await model.restartService())
+    #expect(
+      operations.values == [
+        "agent.unregister", "agent.register", "agent.register", "agent.register",
+      ])
+    #expect(sleeps.values.count == 4)
+  }
+
+  @Test("Service startup waits through transient agent connection failures")
+  func serviceStartupWaitsForAgent() async {
+    let agent = RetryingAgentClient(failuresBeforeSuccess: 2)
+    let operations = OperationRecorder()
+    let sleeps = OperationRecorder()
+    let service = RecordingLoginItemService(
+      name: "agent", status: .notRegistered, operations: operations)
+    let model = makeModel(
+      agentClient: agent,
+      agentService: service,
+      serviceSleep: { _ in sleeps.record("sleep") }
+    )
+
+    #expect(await model.enableService())
+    #expect(await agent.statusCallCount == 3)
+    #expect(sleeps.values.count == 3)
+    #expect(model.agentStatus != nil)
+    #expect(model.agentConnectionError == nil)
+    #expect(model.serviceError == nil)
+  }
+
+  @Test("A new build refreshes each enabled service once")
+  func newBuildRefreshesRegistrationsOnce() async {
+    let suiteName = "net.garaba.summond.tests.registration.\(UUID().uuidString)"
+    let defaults = try! #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("1", forKey: SummondModel.registeredAgentBuildKey)
+    defaults.set("1", forKey: SummondModel.registeredStatusItemBuildKey)
+
+    let operations = OperationRecorder()
+    let model = makeModel(
+      agentService: RecordingLoginItemService(
+        name: "agent", status: .enabled, operations: operations),
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      registrationDefaults: defaults,
+      buildVersion: "2"
+    )
+
+    await model.start()
+    #expect(
+      operations.values == [
+        "agent.unregister", "agent.register", "status.unregister", "status.register",
+      ])
+    #expect(defaults.string(forKey: SummondModel.registeredAgentBuildKey) == "2")
+    #expect(defaults.string(forKey: SummondModel.registeredStatusItemBuildKey) == "2")
+
+    await model.start()
+    #expect(operations.values.count == 4)
+  }
+
+  @Test("A failed agent refresh does not block the status item refresh")
+  func failedAgentRefreshIsIndependent() async {
+    let suiteName = "net.garaba.summond.tests.registration.\(UUID().uuidString)"
+    let defaults = try! #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("1", forKey: SummondModel.registeredAgentBuildKey)
+    defaults.set("1", forKey: SummondModel.registeredStatusItemBuildKey)
+
+    let operations = OperationRecorder()
+    let model = makeModel(
+      agentService: RecordingLoginItemService(
+        name: "agent",
+        status: .enabled,
+        operations: operations,
+        registerErrors: Array(repeating: MockError.registerFailed, count: 3)
+      ),
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      registrationDefaults: defaults,
+      buildVersion: "2"
     )
 
     await model.start()
 
     #expect(
       operations.values == [
-        "agent.unregister", "sleep", "agent.register",
-        "sleep", "agent.register",
-        "sleep", "agent.register",
+        "agent.unregister", "agent.register", "agent.register", "agent.register",
+        "status.unregister", "status.register",
       ])
-    #expect(model.serviceError == nil)
+    #expect(defaults.string(forKey: SummondModel.registeredAgentBuildKey) == "1")
+    #expect(defaults.string(forKey: SummondModel.registeredStatusItemBuildKey) == "2")
+    #expect(model.serviceError == MockError.registerFailed.localizedDescription)
   }
 
-  @Test("Repair leaves disabled services and a responsive agent untouched")
-  func repairSkipsDisabledAndHealthyServices() async {
-    let operations = OperationRecorder()
-    let disabledModel = makeModel(
-      agentClient: MockAgentClient(statusError: MockError.statusFailed),
-      agentService: RecordingLoginItemService(
-        name: "agent", status: .requiresApproval, operations: operations),
-      statusItemService: RecordingLoginItemService(
-        name: "status", status: .notRegistered, operations: operations)
-    )
-    await disabledModel.start()
-    #expect(operations.values.isEmpty)
+  @Test("A service awaiting approval is never re-registered")
+  func updatedRegistrationAwaitingApproval() async {
+    let suiteName = "net.garaba.summond.tests.registration.\(UUID().uuidString)"
+    let defaults = try! #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("1", forKey: SummondModel.registeredAgentBuildKey)
 
-    let healthyModel = makeModel(
-      agentService: RecordingLoginItemService(
-        name: "agent", status: .enabled, operations: operations)
-    )
-    await healthyModel.start()
-    #expect(operations.values.isEmpty)
-  }
-
-  @Test("Repair leaves a running status item untouched")
-  func repairSkipsRunningStatusItem() async {
     let operations = OperationRecorder()
     let model = makeModel(
-      statusItemService: RecordingLoginItemService(
-        name: "status", status: .enabled, operations: operations),
-      isStatusItemRunning: { true }
+      agentService: RecordingLoginItemService(
+        name: "agent",
+        status: .requiresApproval,
+        operations: operations
+      ),
+      registrationDefaults: defaults,
+      buildVersion: "2"
     )
 
     await model.start()
 
     #expect(operations.values.isEmpty)
+    #expect(defaults.string(forKey: SummondModel.registeredAgentBuildKey) == "1")
+  }
+
+  @Test("A current but unresponsive agent registration repairs itself")
+  func unresponsiveAgentRepairsItself() async {
+    let suiteName = "net.garaba.summond.tests.registration.\(UUID().uuidString)"
+    let defaults = try! #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("2", forKey: SummondModel.registeredAgentBuildKey)
+
+    let operations = OperationRecorder()
+    let model = makeModel(
+      agentClient: RetryingAgentClient(failuresBeforeSuccess: 1),
+      agentService: RecordingLoginItemService(
+        name: "agent", status: .enabled, operations: operations),
+      registrationDefaults: defaults,
+      buildVersion: "2"
+    )
+
+    await model.start()
+
+    #expect(operations.values == ["agent.unregister", "agent.register"])
+    #expect(model.agentStatus != nil)
+  }
+
+  @Test("An enabled status item repairs itself when it is not running")
+  func stoppedStatusItemRepairsItself() async {
+    let suiteName = "net.garaba.summond.tests.registration.\(UUID().uuidString)"
+    let defaults = try! #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("2", forKey: SummondModel.registeredStatusItemBuildKey)
+
+    let operations = OperationRecorder()
+    let model = makeModel(
+      agentService: StubLoginItemService(status: .notRegistered),
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      registrationDefaults: defaults,
+      buildVersion: "2",
+      isStatusItemRunning: { false }
+    )
+
+    await model.start()
+
+    #expect(operations.values == ["status.unregister", "status.register"])
+  }
+
+  @Test("A forced refresh re-registers both enabled services")
+  func forcedRefreshReRegistersBothServices() async {
+    let operations = OperationRecorder()
+    let model = makeModel(
+      agentService: RecordingLoginItemService(
+        name: "agent", status: .enabled, operations: operations),
+      statusItemService: RecordingLoginItemService(
+        name: "status", status: .enabled, operations: operations),
+      isStatusItemRunning: { true }
+    )
+
+    #expect(await model.refreshEnabledServices())
+    #expect(
+      operations.values == [
+        "agent.unregister", "agent.register", "status.unregister", "status.register",
+      ])
   }
 
   @Test("Uninstall preparation unregisters the agent before the menu bar item")
@@ -635,8 +757,10 @@ struct SummondModelTests {
     agentService: any LoginItemServiceManaging = StubLoginItemService(status: .enabled),
     statusItemService: any LoginItemServiceManaging = StubLoginItemService(status: .notRegistered),
     savedDataRemover: any SavedDataRemoving = MockSavedDataRemover(),
-    repairSleep: @escaping @Sendable (Duration) async -> Void = { _ in },
-    isStatusItemRunning: @escaping @Sendable () -> Bool = { false }
+    registrationDefaults: UserDefaults = .standard,
+    buildVersion: String = "test-build",
+    serviceSleep: @escaping @Sendable (Duration) async -> Void = { _ in },
+    isStatusItemRunning: @escaping @Sendable () -> Bool = { true }
   ) -> SummondModel {
     SummondModel(
       storage: store,
@@ -645,7 +769,9 @@ struct SummondModelTests {
       statusItemService: statusItemService,
       appCatalog: MockAppCatalog(),
       savedDataRemover: savedDataRemover,
-      repairSleep: repairSleep,
+      registrationDefaults: registrationDefaults,
+      buildVersion: buildVersion,
+      serviceSleep: serviceSleep,
       isStatusItemRunning: isStatusItemRunning
     )
   }
@@ -752,6 +878,27 @@ private final class MockAgentClient: @unchecked Sendable, AgentClientProtocol {
   func requestAccessibilityPrompt() async throws {
     if let promptError { throw promptError }
   }
+}
+
+private actor RetryingAgentClient: AgentClientProtocol {
+  private var failuresRemaining: Int
+  private(set) var statusCallCount = 0
+
+  init(failuresBeforeSuccess: Int) {
+    failuresRemaining = failuresBeforeSuccess
+  }
+
+  func status() async throws -> AgentStatus {
+    statusCallCount += 1
+    if failuresRemaining > 0 {
+      failuresRemaining -= 1
+      throw MockError.statusFailed
+    }
+    return healthyStatus()
+  }
+
+  func reloadConfiguration() async throws -> AgentStatus { healthyStatus() }
+  func requestAccessibilityPrompt() async throws {}
 }
 
 private actor CancellableAgentClient: AgentClientProtocol {
@@ -873,6 +1020,7 @@ private final class RecordingLoginItemService: LoginItemServiceManaging, @unchec
   private let name: String
   private let operations: OperationRecorder
   private let unregistersBeforeThrowing: Bool
+  private let statusAfterRegister: ServiceRegistrationStatus
   private var currentStatus: ServiceRegistrationStatus
   private var registerErrors: [Error]
   private var unregisterErrors: [Error]
@@ -883,7 +1031,8 @@ private final class RecordingLoginItemService: LoginItemServiceManaging, @unchec
     operations: OperationRecorder,
     registerErrors: [Error] = [],
     unregisterErrors: [Error] = [],
-    unregistersBeforeThrowing: Bool = false
+    unregistersBeforeThrowing: Bool = false,
+    statusAfterRegister: ServiceRegistrationStatus = .enabled
   ) {
     self.name = name
     currentStatus = status
@@ -891,6 +1040,7 @@ private final class RecordingLoginItemService: LoginItemServiceManaging, @unchec
     self.registerErrors = registerErrors
     self.unregisterErrors = unregisterErrors
     self.unregistersBeforeThrowing = unregistersBeforeThrowing
+    self.statusAfterRegister = statusAfterRegister
   }
 
   var status: ServiceRegistrationStatus { lock.withLock { currentStatus } }
@@ -901,7 +1051,7 @@ private final class RecordingLoginItemService: LoginItemServiceManaging, @unchec
     if let error {
       throw error
     }
-    lock.withLock { currentStatus = .enabled }
+    lock.withLock { currentStatus = statusAfterRegister }
   }
 
   func unregister() async throws {
@@ -1035,7 +1185,6 @@ private func healthyStatus(bindingCount: Int = 0) -> AgentStatus {
   AgentStatus(
     agentVersion: "test",
     accessibilityGranted: true,
-    accessibilityRequired: false,
     shortcutsActive: true,
     configState: .ok,
     bindingCount: bindingCount,

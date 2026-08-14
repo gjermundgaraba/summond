@@ -30,7 +30,6 @@ struct AgentStatusTests {
     let status = AgentStatus(
       agentVersion: "1.2.3",
       accessibilityGranted: true,
-      accessibilityRequired: true,
       shortcutsActive: false,
       failedShortcuts: ["cmd+f5"],
       configState: .invalid,
@@ -87,18 +86,13 @@ struct SystemHealthTests {
         .degraded(.shortcutRegistrationFailures(shortcuts: ["cmd+f5"]))
       ),
       (
-        status(accessibilityGranted: false),
+        status(accessibilityGranted: false, bindingCount: 0),
         .setupRequired(.accessibilityPermission)
       ),
       (
         // Configuration problems must not hide behind the permission banner.
         status(accessibilityGranted: false, configState: .invalid, lastReloadError: "dup"),
         .degraded(.configurationInvalid(details: "dup"))
-      ),
-      (
-        // Launch-only bindings never demand Accessibility.
-        status(accessibilityGranted: false, accessibilityRequired: false),
-        .ready(activeShortcuts: 3)
       ),
       (status(configState: .fresh, bindingCount: 0), .ready(activeShortcuts: 0)),
       (status(bindingCount: 5), .ready(activeShortcuts: 5)),
@@ -135,7 +129,6 @@ struct SystemHealthTests {
 
   private func status(
     accessibilityGranted: Bool = true,
-    accessibilityRequired: Bool = true,
     shortcutsActive: Bool = true,
     failedShortcuts: [String] = [],
     configState: AgentConfigurationState = .ok,
@@ -146,7 +139,6 @@ struct SystemHealthTests {
     AgentStatus(
       agentVersion: "test",
       accessibilityGranted: accessibilityGranted,
-      accessibilityRequired: accessibilityRequired,
       shortcutsActive: shortcutsActive,
       failedShortcuts: failedShortcuts,
       configState: configState,
@@ -185,7 +177,6 @@ struct AgentConfigurationReloadTests {
     #expect(fields.bindingCount == 1)
     #expect(fields.lastReloadError == nil)
     #expect(fields.unresolvedBundleIDs == ["com.example.missing"])
-    #expect(!fields.accessibilityRequired)
 
     let installedShortcut = try BindingCompiler.compileShortcut(
       Shortcut(key: "f5", mods: ["cmd"])
@@ -193,30 +184,6 @@ struct AgentConfigurationReloadTests {
     #expect(
       snapshot.bindingsByTrigger[installedShortcut]?.identity.bundleIdentifier
         == "com.apple.safari")
-  }
-
-  @Test("Reload flags the Accessibility requirement for window-managing modes")
-  func reloadFlagsAccessibilityRequirement() throws {
-    let configuration = SummondConfiguration(
-      bindings: [
-        StoredBinding(
-          shortcut: Shortcut(key: "f5", mods: ["cmd"]),
-          target: try AppTarget(bundleID: "com.apple.safari", mode: .newWindow)
-        )
-      ]
-    )
-    let store = InMemoryConfigurationStore()
-    try store.save(configuration)
-    let reloader = AgentConfigurationReloader(
-      store: store,
-      appResolver: TestAppResolver(appsByBundleID: [
-        "com.apple.safari": makeIdentity(bundleID: "com.apple.safari")
-      ])
-    )
-
-    _ = reloader.reload()
-
-    #expect(reloader.statusFields().accessibilityRequired)
   }
 
   @Test("Hard invalid reload preserves the previous engine snapshot")
@@ -425,20 +392,13 @@ struct XPCAsyncBridgeTests {
 
 @Suite("LaunchAgent property list")
 struct LaunchAgentPlistTests {
-  @Test("Ships a LaunchAgent plist whose wiring matches the client and bundle layout")
+  @Test("The LaunchAgent template preserves invariant launch behavior")
   func plistMatchesContract() throws {
     let data = try Data(contentsOf: agentPlistURL())
     let rawPlist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
     let plist = try #require(rawPlist as? [String: Any])
-    let machServices = try #require(plist["MachServices"] as? [String: Bool])
     let keepAlive = try #require(plist["KeepAlive"] as? [String: Bool])
 
-    #expect(plist["Label"] as? String == SummondBundleIdentifiers.agent)
-    #expect(machServices == [SummondBundleIdentifiers.agentMachService: true])
-    #expect(
-      plist["BundleProgram"] as? String
-        == "Contents/MacOS/SummondAgent.app/Contents/MacOS/SummondAgent")
-    #expect(plist["AssociatedBundleIdentifiers"] as? String == SummondBundleIdentifiers.app)
     #expect(plist["RunAtLoad"] as? Bool == true)
     #expect(plist["LimitLoadToSessionType"] as? String == "Aqua")
     #expect(keepAlive["SuccessfulExit"] == false)

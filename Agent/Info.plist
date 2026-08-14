@@ -12,9 +12,9 @@
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Summond</string>
+  <string>$(SUMMOND_DISPLAY_NAME)</string>
   <key>CFBundleDisplayName</key>
-  <string>Summond</string>
+  <string>$(SUMMOND_DISPLAY_NAME)</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>

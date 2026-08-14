@@ -227,7 +227,7 @@ struct ContentView: View {
   }
 
   private func handleURL(_ url: URL) {
-    guard url.scheme == "summond" else { return }
+    guard url.scheme == SummondBundleIdentifiers.urlScheme else { return }
     switch url.host {
     case "setup":
       presentedSheet = .setup

@@ -19,12 +19,8 @@ public enum AgentConfigurationState: String, Codable, Equatable, Sendable {
 
 public struct AgentStatus: Codable, Equatable, Sendable {
   public var agentVersion: String
-  /// Accessibility gates the New Window and Move open modes (Dock menu and
-  /// Space queries), not shortcut delivery -- hot keys need no permission.
+  /// Whether macOS granted the Accessibility permission Summond requires.
   public var accessibilityGranted: Bool
-  /// Whether any active binding uses an open mode that needs Accessibility.
-  /// Health treats a missing permission as setup work only when this is true.
-  public var accessibilityRequired: Bool
   public var shortcutsActive: Bool
   /// Shortcut descriptions whose system hot-key registration failed. Degraded
   /// state like `unresolvedBundleIDs`: the remaining bindings stay active.
@@ -37,7 +33,6 @@ public struct AgentStatus: Codable, Equatable, Sendable {
   public init(
     agentVersion: String,
     accessibilityGranted: Bool,
-    accessibilityRequired: Bool,
     shortcutsActive: Bool,
     failedShortcuts: [String] = [],
     configState: AgentConfigurationState,
@@ -47,7 +42,6 @@ public struct AgentStatus: Codable, Equatable, Sendable {
   ) {
     self.agentVersion = agentVersion
     self.accessibilityGranted = accessibilityGranted
-    self.accessibilityRequired = accessibilityRequired
     self.shortcutsActive = shortcutsActive
     self.failedShortcuts = failedShortcuts
     self.configState = configState

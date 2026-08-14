@@ -1,4 +1,4 @@
-.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon install-local uninstall-local release-local release-build release
+.PHONY: help project build dev-build core-build test core-test app-test ui-test test-tart smoke-tart tart-ensure-base lint lint-fix icon install-local uninstall-local release-local release
 
 XCODEBUILD ?= xcodebuild
 XCODEGEN ?= $(or $(shell command -v xcodegen 2>/dev/null),/opt/homebrew/bin/xcodegen)
@@ -24,10 +24,9 @@ help:
 		'  make lint           Run swift-format lint' \
 		'  make lint-fix       Apply swift-format formatting' \
 		'  make icon           Regenerate Resources/AppIcon.icns from the vector generator' \
-		'  make install-local  Build, verify, and install a signed local release' \
-		'  make uninstall-local  Unregister services and move the installed app to the Trash' \
-		'  make release-local  Create local signed Release app/zip/dmg without notarization' \
-		'  make release-build  Alias for release-local' \
+		'  make install-local  Build, verify, and install the isolated local app' \
+		'  make uninstall-local  Unregister and trash the isolated local app' \
+		'  make release-local  Create isolated local app/zip/dmg artifacts' \
 		'  make release        Create Developer ID signed and notarized app/zip/dmg'
 
 project:
@@ -48,7 +47,7 @@ core-test:
 	swift test --skip-build --package-path Core
 
 app-test: project
-	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)' SUMMOND_APP_BUNDLE_IDENTIFIER=net.garaba.summond.test-host
+	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -destination '$(DESTINATION)' SUMMOND_BUILD_HOST_BUNDLE_IDENTIFIER=net.garaba.summond.test-host
 
 # XCUITest UI tests drive a real GUI app, so they run only inside the Tart VM
 # (via test-tart). Kept in a separate scheme so host `make test`/`app-test`
@@ -88,8 +87,6 @@ uninstall-local:
 
 release-local:
 	scripts/release.sh --local
-
-release-build: release-local
 
 release: lint core-test app-test
 	scripts/release.sh

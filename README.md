@@ -25,9 +25,8 @@ part of CI.
 - An Apple Development signing identity in the keychain for `make install-local`
   and `make release-local` (create one in Xcode > Settings > Accounts)
 - [Tart](https://tart.run/) for `make test-tart` and `make smoke-tart`
-- Accessibility permission for the `Summond` entry that represents the
-  bundled `SummondAgent` helper (used by the New Window and Move Here
-  behaviors; shortcuts themselves need no permission)
+- Accessibility permission for the `Summond` or `Summond Local` entry that
+  represents the bundled agent
 - Login Items approval for the bundled LaunchAgent when macOS asks for it
 
 ## Install
@@ -126,13 +125,15 @@ needed.
 If the service shows **Requires Approval**, approve Summond in System Settings >
 General > Login Items & Extensions.
 
-If shortcuts stop working after rebuilding or re-signing the app, macOS may have
-revoked Accessibility trust for the old signature. Reset it and grant permission
-again:
+If macOS revokes Accessibility trust after rebuilding or re-signing, reset the
+affected flavor and grant permission again:
 
 ```bash
+# Published app
 tccutil reset Accessibility net.garaba.summond.agent
-tccutil reset ListenEvent net.garaba.summond.agent
+
+# Local development app
+tccutil reset Accessibility net.garaba.summond.local.agent
 ```
 
 Stream Summond logs:
@@ -140,6 +141,8 @@ Stream Summond logs:
 ```bash
 log stream --predicate 'subsystem == "net.garaba.summond"'
 ```
+
+Use `net.garaba.summond.local` for Summond Local logs.
 
 Useful local build checks:
 
@@ -206,19 +209,32 @@ Run formatting checks:
 make lint
 ```
 
-Create local release artifacts:
+Build and install the isolated development app:
+
+```bash
+make install-local
+```
+
+This installs `/Applications/Summond Local.app`. It uses separate bundle IDs,
+services, URL scheme, preferences, Accessibility permission, logs, and
+`~/Library/Application Support/Summond Local/` configuration, so it can coexist
+with the published app. Remove only the development app with:
+
+```bash
+make uninstall-local
+```
+
+Create the same local artifacts without installing them:
 
 ```bash
 make release-local
 ```
 
-`make release-build` is an alias for `make release-local`; it creates a signed
-Release app, zip, and drag-install DMG without notarization for local validation.
-The artifacts are written to `dist/release/`. Local builds automatically use the
-available Apple Development identity and its team. If the keychain contains more
-than one, set `SIGNING_IDENTITY` to the desired certificate name or SHA-1 hash;
-`TEAM_ID` is derived from that exact certificate unless explicitly set. Use
-`make install-local` to rebuild, verify, install, and relaunch.
+The signed app, zip, and drag-install DMG are written to `dist/local/` without
+notarization. Local builds automatically use the available Apple Development
+identity and its team. If the keychain contains more than one, set
+`SIGNING_IDENTITY` to the desired certificate name or SHA-1 hash; `TEAM_ID` is
+derived from that exact certificate unless explicitly set.
 
 Create Developer ID artifacts and submit them for notarization:
 

@@ -7,6 +7,9 @@ import SummondCore
 @MainActor
 @Observable
 final class SummondModel {
+  static let registeredAgentBuildKey = "registeredAgentBuild"
+  static let registeredStatusItemBuildKey = "registeredStatusItemBuild"
+
   enum LoadState: Equatable {
     case fresh
     case loaded
@@ -20,7 +23,9 @@ final class SummondModel {
   private let statusItemService: any LoginItemServiceManaging
   private let appCatalog: any AppDisplayResolving
   private let savedDataRemover: any SavedDataRemoving
-  private let repairSleep: @Sendable (Duration) async -> Void
+  private let registrationDefaults: UserDefaults
+  private let buildVersion: String
+  private let serviceSleep: @Sendable (Duration) async -> Void
   private let isStatusItemRunning: @Sendable () -> Bool
 
   private(set) var configuration: SummondConfiguration
@@ -42,6 +47,7 @@ final class SummondModel {
   private(set) var configurationError: String?
   private(set) var reloadError: String?
   private(set) var serviceError: String?
+  private(set) var agentConnectionError: String?
   private(set) var permissionError: String?
   private(set) var statusItemError: String?
   private(set) var uninstallPreparationError: String?
@@ -60,7 +66,9 @@ final class SummondModel {
     ),
     appCatalog: (any AppDisplayResolving)? = nil,
     savedDataRemover: any SavedDataRemoving = LocalSavedDataRemover(),
-    repairSleep: @escaping @Sendable (Duration) async -> Void = {
+    registrationDefaults: UserDefaults = .standard,
+    buildVersion: String? = nil,
+    serviceSleep: @escaping @Sendable (Duration) async -> Void = {
       try? await Task.sleep(for: $0)
     },
     isStatusItemRunning: @escaping @Sendable () -> Bool = {
@@ -75,7 +83,9 @@ final class SummondModel {
     self.statusItemService = statusItemService
     self.appCatalog = appCatalog ?? InstalledAppCatalog()
     self.savedDataRemover = savedDataRemover
-    self.repairSleep = repairSleep
+    self.registrationDefaults = registrationDefaults
+    self.buildVersion = buildVersion ?? Self.bundleBuildVersion
+    self.serviceSleep = serviceSleep
     self.isStatusItemRunning = isStatusItemRunning
     self.serviceStatus = agentService.status
     self.statusItemStatus = statusItemService.status
@@ -275,7 +285,9 @@ final class SummondModel {
     return await acceptPersistedConfiguration(configuration)
   }
 
-  func refresh() async {
+  @discardableResult
+  func refresh() async -> AgentStatus? {
+    guard !isServiceBusy else { return agentStatus }
     let sequence = beginAgentRequest()
     refreshRegistrationStatuses()
     let shouldReload = retryUnavailableConfigurationLoad() || reloadError != nil
@@ -288,21 +300,27 @@ final class SummondModel {
           try await agentClient.status()
         }
       guard isCurrentAgentRequest(sequence) else {
-        return
+        return status
       }
       agentStatus = status
       reloadError = nil
+      agentConnectionError = nil
       permissionError = nil
+      return status
     } catch {
       // A task tied to a disappearing view is routinely cancelled. Its final
       // XPC error must not overwrite the last verified status.
       guard isCurrentAgentRequest(sequence) else {
-        return
+        return agentStatus
       }
       agentStatus = nil
       if shouldReload {
         reloadError = error.localizedDescription
+      } else {
+        agentConnectionError =
+          serviceStatus == .enabled ? error.localizedDescription : nil
       }
+      return nil
     }
   }
 
@@ -319,6 +337,7 @@ final class SummondModel {
       guard isCurrentAgentRequest(sequence) else { return }
       agentStatus = status
       reloadError = nil
+      agentConnectionError = nil
       permissionError = nil
     } catch {
       guard isCurrentAgentRequest(sequence) else { return }
@@ -327,76 +346,35 @@ final class SummondModel {
     refreshRegistrationStatuses()
   }
 
-  func enableService() async {
-    await runServiceOperation {
-      try await agentService.register()
-    }
-  }
-
-  func restartService() async {
-    await runServiceOperation {
-      try await agentService.unregister()
-      try await agentService.register()
-    }
-  }
-
   func start() async {
-    await repairStaleRegistrations()
-    await refresh()
+    _ = await refreshEnabledServices(force: false)
   }
 
-  /// SMAppService pins the registered binary's code requirement, so after an
-  /// app update launchd refuses to spawn the stale registration (EX_CONFIG)
-  /// until the owning app re-registers. Calling `register()` alone does not
-  /// refresh the pinned requirement; only unregister-then-register does. Run
-  /// that repair only for items that are enabled yet not actually running, so
-  /// healthy services are never restarted and disabled items stay disabled.
-  private func repairStaleRegistrations() async {
-    if statusItemService.status == .enabled, !isStatusItemRunning() {
-      isStatusItemBusy = true
-      defer { isStatusItemBusy = false }
-      do {
-        try await repairRegistration(of: statusItemService)
-        statusItemError = nil
-      } catch {
-        statusItemError = error.localizedDescription
-      }
-      statusItemStatus = statusItemService.status
-    }
-
-    guard agentService.status == .enabled else {
-      return
-    }
-    isServiceBusy = true
-    defer { isServiceBusy = false }
-    if (try? await agentClient.status()) != nil {
-      return
-    }
-    do {
-      try await repairRegistration(of: agentService)
-      serviceError = nil
-    } catch {
-      serviceError = error.localizedDescription
-    }
-    serviceStatus = agentService.status
+  @discardableResult
+  func refreshEnabledServices() async -> Bool {
+    await refreshEnabledServices(force: true)
   }
 
-  /// Failed registers retry alone because a second unregister would discard
-  /// the registration this repair restores.
-  private func repairRegistration(of service: any LoginItemServiceManaging) async throws {
-    try await service.unregister()
-    let delays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
-    for (attempt, delay) in delays.enumerated() {
-      await repairSleep(delay)
-      do {
-        try await service.register()
-        return
-      } catch {
-        if attempt == delays.count - 1 {
-          throw error
-        }
-      }
+  @discardableResult
+  func enableService() async -> Bool {
+    let succeeded = await runServiceOperation {
+      try await agentService.register()
     }
+    if succeeded {
+      registrationDefaults.set(buildVersion, forKey: Self.registeredAgentBuildKey)
+    }
+    return succeeded
+  }
+
+  @discardableResult
+  func restartService() async -> Bool {
+    let succeeded = await runServiceOperation {
+      try await reRegister(agentService)
+    }
+    if succeeded {
+      registrationDefaults.set(buildVersion, forKey: Self.registeredAgentBuildKey)
+    }
+    return succeeded
   }
 
   func setStatusItemShown(_ isShown: Bool) async {
@@ -412,6 +390,7 @@ final class SummondModel {
       do {
         try await statusItemService.register()
         statusItemError = nil
+        registrationDefaults.set(buildVersion, forKey: Self.registeredStatusItemBuildKey)
       } catch {
         statusItemError = error.localizedDescription
       }
@@ -444,11 +423,12 @@ final class SummondModel {
       refreshRegistrationStatuses()
     }
 
-    if agentService.status.needsUnregisterForUninstall {
+    if agentService.status.isRegistered {
       do {
         try await agentService.unregister()
         serviceError = nil
         agentStatus = nil
+        agentConnectionError = nil
       } catch {
         serviceError = error.localizedDescription
         uninstallPreparationError =
@@ -457,7 +437,7 @@ final class SummondModel {
       }
     }
 
-    if statusItemService.status.needsUnregisterForUninstall {
+    if statusItemService.status.isRegistered {
       do {
         try await statusItemService.unregister()
         statusItemError = nil
@@ -561,6 +541,7 @@ final class SummondModel {
       if isCurrentAgentRequest(sequence) {
         agentStatus = status
         reloadError = nil
+        agentConnectionError = nil
         permissionError = nil
       }
       return .saved
@@ -610,9 +591,74 @@ final class SummondModel {
     sequence == agentRequestSequence && !Task.isCancelled
   }
 
-  private func runServiceOperation(_ operation: () async throws -> Void) async {
+  private static var bundleBuildVersion: String {
+    guard
+      let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+      !version.isEmpty
+    else {
+      preconditionFailure("Summond requires CFBundleVersion in its Info.plist")
+    }
+    return version
+  }
+
+  private func refreshEnabledServices(force: Bool) async -> Bool {
+    let agentIsResponsive = await refresh() != nil
+    var succeeded = true
+
+    if agentService.status == .enabled,
+      force
+        || registrationDefaults.string(forKey: Self.registeredAgentBuildKey) != buildVersion
+        || !agentIsResponsive
+    {
+      succeeded = await restartService()
+    }
+
+    if statusItemService.status == .enabled,
+      force
+        || registrationDefaults.string(forKey: Self.registeredStatusItemBuildKey) != buildVersion
+        || !isStatusItemRunning()
+    {
+      succeeded = await restartStatusItem() && succeeded
+    }
+
+    return succeeded && (serviceStatus != .enabled || agentStatus != nil)
+  }
+
+  private func restartStatusItem() async -> Bool {
+    guard !isStatusItemBusy, !isPreparingToUninstall else { return false }
+    isStatusItemBusy = true
+    defer { isStatusItemBusy = false }
+
+    do {
+      try await reRegister(statusItemService)
+      statusItemError = nil
+      registrationDefaults.set(buildVersion, forKey: Self.registeredStatusItemBuildKey)
+    } catch {
+      statusItemError = error.localizedDescription
+      statusItemStatus = statusItemService.status
+      return false
+    }
+    statusItemStatus = statusItemService.status
+    return true
+  }
+
+  private func reRegister(_ service: any LoginItemServiceManaging) async throws {
+    try await service.unregister()
+    let delays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
+    for (attempt, delay) in delays.enumerated() {
+      await serviceSleep(delay)
+      do {
+        try await service.register()
+        return
+      } catch {
+        if attempt == delays.count - 1 { throw error }
+      }
+    }
+  }
+
+  private func runServiceOperation(_ operation: () async throws -> Void) async -> Bool {
     guard !isServiceBusy, !isPreparingToUninstall else {
-      return
+      return false
     }
     isServiceBusy = true
     defer { isServiceBusy = false }
@@ -622,8 +668,44 @@ final class SummondModel {
       serviceError = nil
     } catch {
       serviceError = error.localizedDescription
+      refreshRegistrationStatuses()
+      return false
     }
-    await refresh()
+    refreshRegistrationStatuses()
+    if serviceStatus == .enabled {
+      await waitForAgentReadiness()
+    } else {
+      agentStatus = nil
+      agentConnectionError = nil
+    }
+    return true
+  }
+
+  private func waitForAgentReadiness() async {
+    let sequence = beginAgentRequest()
+    var lastError: Error?
+
+    for delay in [Duration.zero, .milliseconds(500), .seconds(2), .seconds(5)] {
+      await serviceSleep(delay)
+      guard isCurrentAgentRequest(sequence) else { return }
+      do {
+        let status = try await agentClient.status()
+        guard isCurrentAgentRequest(sequence) else { return }
+        agentStatus = status
+        reloadError = nil
+        agentConnectionError = nil
+        permissionError = nil
+        refreshRegistrationStatuses()
+        return
+      } catch {
+        lastError = error
+      }
+    }
+
+    guard isCurrentAgentRequest(sequence) else { return }
+    agentStatus = nil
+    agentConnectionError = lastError?.localizedDescription
+    refreshRegistrationStatuses()
   }
 
   private func terminateStatusItem() {
@@ -646,7 +728,7 @@ final class SummondModel {
 }
 
 extension ServiceRegistrationStatus {
-  fileprivate var needsUnregisterForUninstall: Bool {
+  fileprivate var isRegistered: Bool {
     switch self {
     case .enabled, .requiresApproval:
       true

@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release.sh [--local|--smoke] [options]
 
-Build, sign, verify, package, and notarize Summond.app and Summond.dmg.
+Build, sign, verify, package, and optionally notarize Summond artifacts.
 
 Modes:
   default release mode
@@ -13,10 +13,9 @@ Modes:
       keychain profile. Verification and notarization failures are fatal.
 
   --local
-      Signs with the requested identity, skips notarization, and reports
-      Gatekeeper assessment failures without aborting. Signing identity
-      mismatches remain fatal. This is intended for Apple Development
-      identities and local plumbing checks.
+      Builds the isolated Summond Local flavor, signs with the requested
+      identity, skips notarization, and reports Gatekeeper assessment failures
+      without aborting. Signing identity mismatches remain fatal.
 
   --smoke
       Builds the SMOKE_TEST entry point, signs ad-hoc, and skips notarization.
@@ -30,7 +29,7 @@ Options:
   --notary-profile NAME    notarytool keychain profile. Default:
                            NOTARY_PROFILE env.
   --output-dir DIR         Output directory. Default: OUTPUT_DIR env or
-                           dist/release.
+                           dist/local in local mode, dist/release otherwise.
   --help                   Show this help.
 
 Environment:
@@ -44,20 +43,33 @@ USAGE
 }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA="$ROOT_DIR/.build/release-dd"
 PROJECT_PATH="$ROOT_DIR/Summond.xcodeproj"
 SCHEME="Summond"
 CONFIGURATION="Release"
-APP_NAME="Summond.app"
 
 LOCAL_MODE=0
 SMOKE_MODE=0
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/release}"
+OUTPUT_DIR="${OUTPUT_DIR:-}"
 RELEASE_MARKETING_VERSION="${MARKETING_VERSION:-}"
 RELEASE_BUILD_NUMBER="${CURRENT_PROJECT_VERSION:-}"
+
+DERIVED_DATA=""
+APP_PRODUCT_NAME=""
+AGENT_PRODUCT_NAME=""
+STATUS_PRODUCT_NAME=""
+STATUS_DISPLAY_NAME=""
+APP_BUNDLE_IDENTIFIER=""
+AGENT_BUNDLE_IDENTIFIER=""
+STATUS_BUNDLE_IDENTIFIER=""
+AGENT_MACH_SERVICE=""
+AGENT_PLIST_NAME=""
+URL_SCHEME=""
+APP_NAME=""
+AGENT_APP_NAME=""
+STATUS_APP_NAME=""
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -130,6 +142,35 @@ parse_args() {
         ;;
     esac
   done
+}
+
+configure_artifact() {
+  if [[ "$LOCAL_MODE" -eq 1 && "$SMOKE_MODE" -eq 0 ]]; then
+    DERIVED_DATA="$ROOT_DIR/.build/local-release-dd"
+    APP_PRODUCT_NAME="Summond Local"
+    AGENT_PRODUCT_NAME="SummondLocalAgent"
+    STATUS_PRODUCT_NAME="SummondLocalStatus"
+    APP_BUNDLE_IDENTIFIER="net.garaba.summond.local"
+    URL_SCHEME="summond-local"
+    [[ -n "$OUTPUT_DIR" ]] || OUTPUT_DIR="$ROOT_DIR/dist/local"
+  else
+    DERIVED_DATA="$ROOT_DIR/.build/release-dd"
+    APP_PRODUCT_NAME="Summond"
+    AGENT_PRODUCT_NAME="SummondAgent"
+    STATUS_PRODUCT_NAME="SummondStatus"
+    APP_BUNDLE_IDENTIFIER="net.garaba.summond"
+    URL_SCHEME="summond"
+    [[ -n "$OUTPUT_DIR" ]] || OUTPUT_DIR="$ROOT_DIR/dist/release"
+  fi
+
+  AGENT_BUNDLE_IDENTIFIER="$APP_BUNDLE_IDENTIFIER.agent"
+  STATUS_BUNDLE_IDENTIFIER="$APP_BUNDLE_IDENTIFIER.ui"
+  STATUS_DISPLAY_NAME="$APP_PRODUCT_NAME Menu Bar"
+  AGENT_MACH_SERVICE="$AGENT_BUNDLE_IDENTIFIER.xpc"
+  AGENT_PLIST_NAME="$AGENT_BUNDLE_IDENTIFIER.plist"
+  APP_NAME="$APP_PRODUCT_NAME.app"
+  AGENT_APP_NAME="$AGENT_PRODUCT_NAME.app"
+  STATUS_APP_NAME="$STATUS_PRODUCT_NAME.app"
 }
 
 require_tool() {
@@ -320,11 +361,17 @@ build_release_app() {
     -configuration "$CONFIGURATION" \
     -derivedDataPath "$DERIVED_DATA" \
     -clonedSourcePackagesDirPath "$swiftpm_cache/source-packages" \
-    CODE_SIGNING_ALLOWED=NO \
-    CLANG_MODULE_CACHE_PATH="$module_cache" \
-    SUMMOND_APP_BUNDLE_IDENTIFIER=net.garaba.summond.build-host \
-    "$@" \
-    build
+      CODE_SIGNING_ALLOWED=NO \
+      CLANG_MODULE_CACHE_PATH="$module_cache" \
+      "SUMMOND_APP_PRODUCT_NAME=$APP_PRODUCT_NAME" \
+      "SUMMOND_AGENT_PRODUCT_NAME=$AGENT_PRODUCT_NAME" \
+      "SUMMOND_STATUS_PRODUCT_NAME=$STATUS_PRODUCT_NAME" \
+      "SUMMOND_STATUS_DISPLAY_NAME=$STATUS_DISPLAY_NAME" \
+      "SUMMOND_APP_BUNDLE_IDENTIFIER=$APP_BUNDLE_IDENTIFIER" \
+      "SUMMOND_BUILD_HOST_BUNDLE_IDENTIFIER=$APP_BUNDLE_IDENTIFIER.build-host" \
+      "SUMMOND_URL_SCHEME=$URL_SCHEME" \
+      "$@" \
+      build
 }
 
 built_app_path() {
@@ -345,19 +392,40 @@ stage_app() {
 
   mkdir -p "$OUTPUT_DIR"
   APP_PATH="$OUTPUT_DIR/$APP_NAME"
-  ZIP_PATH="$OUTPUT_DIR/Summond.zip"
-  DMG_PATH="$OUTPUT_DIR/Summond.dmg"
+  ZIP_PATH="$OUTPUT_DIR/$APP_PRODUCT_NAME.zip"
+  DMG_PATH="$OUTPUT_DIR/$APP_PRODUCT_NAME.dmg"
   rm -rf "$APP_PATH" "$ZIP_PATH" "$DMG_PATH"
   ditto "$built_app" "$APP_PATH"
-  plutil -replace CFBundleIdentifier -string net.garaba.summond "$APP_PATH/Contents/Info.plist"
+  plutil -replace CFBundleIdentifier -string "$APP_BUNDLE_IDENTIFIER" \
+    "$APP_PATH/Contents/Info.plist"
 }
 
 apply_launch_agent_spawn_constraint() {
   [[ -n "$TEAM_ID" ]] || return 0
 
   log "Applying LaunchAgent spawn constraint"
-  local agent_plist="$APP_PATH/Contents/Library/LaunchAgents/net.garaba.summond.agent.plist"
-  bash "$ROOT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" "$agent_plist" "$TEAM_ID"
+  local agent_plist="$APP_PATH/Contents/Library/LaunchAgents/$AGENT_PLIST_NAME"
+  bash "$ROOT_DIR/scripts/apply-launch-agent-spawn-constraint.sh" \
+    "$agent_plist" "$TEAM_ID" "$AGENT_BUNDLE_IDENTIFIER"
+}
+
+verify_launch_agent_plist() {
+  log "Verifying LaunchAgent wiring"
+  local agent_plist="$APP_PATH/Contents/Library/LaunchAgents/$AGENT_PLIST_NAME"
+  local expected_program="Contents/MacOS/$AGENT_APP_NAME/Contents/MacOS/$AGENT_PRODUCT_NAME"
+
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$agent_plist")" \
+    == "$AGENT_BUNDLE_IDENTIFIER" ]] \
+    || die "LaunchAgent label does not match $AGENT_BUNDLE_IDENTIFIER."
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$agent_plist")" \
+    == "$expected_program" ]] \
+    || die "LaunchAgent program does not match $expected_program."
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :AssociatedBundleIdentifiers' "$agent_plist")" \
+    == "$APP_BUNDLE_IDENTIFIER" ]] \
+    || die "LaunchAgent association does not match $APP_BUNDLE_IDENTIFIER."
+  [[ "$(/usr/libexec/PlistBuddy -c "Print :MachServices:$AGENT_MACH_SERVICE" "$agent_plist")" \
+    == "true" ]] \
+    || die "LaunchAgent Mach service does not match $AGENT_MACH_SERVICE."
 }
 
 sign_path() {
@@ -379,8 +447,8 @@ sign_artifacts() {
   log "Signing nested code innermost first"
   [[ -n "$SIGNING_IDENTITY" ]] || die "signing identity was not resolved during preflight."
 
-  local status_app="$APP_PATH/Contents/Library/LoginItems/SummondStatus.app"
-  local agent_app="$APP_PATH/Contents/MacOS/SummondAgent.app"
+  local status_app="$APP_PATH/Contents/Library/LoginItems/$STATUS_APP_NAME"
+  local agent_app="$APP_PATH/Contents/MacOS/$AGENT_APP_NAME"
 
   [[ -d "$status_app" ]] || die "nested status app not found at $status_app"
   [[ -d "$agent_app" ]] || die "nested agent app not found at $agent_app"
@@ -407,7 +475,7 @@ create_dmg() {
     ditto "$APP_PATH" "$dmg_root/$APP_NAME"
     ln -s /Applications "$dmg_root/Applications"
     hdiutil create \
-      -volname Summond \
+      -volname "$APP_PRODUCT_NAME" \
       -srcfolder "$dmg_root" \
       -format UDZO \
       -ov \
@@ -472,14 +540,30 @@ verify_signed_identity() {
 
 verify_release_identity() {
   log "Verifying signing identities"
-  verify_signed_identity "$APP_PATH" "net.garaba.summond" "main app"
+  local declared_agent_path declared_url_scheme declared_status_name status_info
+  declared_agent_path="$(
+    plutil -extract SummondAgentBundlePath raw -o - "$APP_PATH/Contents/Info.plist"
+  )"
+  [[ "$declared_agent_path" == "Contents/MacOS/$AGENT_APP_NAME" ]] \
+    || die "main app declares an unexpected agent bundle path: $declared_agent_path"
+  declared_url_scheme="$(
+    plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw -o - \
+      "$APP_PATH/Contents/Info.plist"
+  )"
+  [[ "$declared_url_scheme" == "$URL_SCHEME" ]] \
+    || die "main app declares an unexpected URL scheme: $declared_url_scheme"
+  status_info="$APP_PATH/Contents/Library/LoginItems/$STATUS_APP_NAME/Contents/Info.plist"
+  declared_status_name="$(plutil -extract CFBundleDisplayName raw -o - "$status_info")"
+  [[ "$declared_status_name" == "$STATUS_DISPLAY_NAME" ]] \
+    || die "status item declares an unexpected display name: $declared_status_name"
+  verify_signed_identity "$APP_PATH" "$APP_BUNDLE_IDENTIFIER" "main app"
   verify_signed_identity \
-    "$APP_PATH/Contents/MacOS/SummondAgent.app" \
-    "net.garaba.summond.agent" \
+    "$APP_PATH/Contents/MacOS/$AGENT_APP_NAME" \
+    "$AGENT_BUNDLE_IDENTIFIER" \
     "agent app"
   verify_signed_identity \
-    "$APP_PATH/Contents/Library/LoginItems/SummondStatus.app" \
-    "net.garaba.summond.ui" \
+    "$APP_PATH/Contents/Library/LoginItems/$STATUS_APP_NAME" \
+    "$STATUS_BUNDLE_IDENTIFIER" \
     "status item"
 }
 
@@ -516,6 +600,7 @@ notarize_and_staple() {
 
 main() {
   parse_args "$@"
+  configure_artifact
   if [[ -z "$SIGNING_IDENTITY" ]]; then
     SIGNING_IDENTITY="Developer ID Application"
     [[ "$LOCAL_MODE" -eq 0 ]] || SIGNING_IDENTITY="Apple Development"
@@ -540,6 +625,7 @@ main() {
   build_release_app
   stage_app
   apply_launch_agent_spawn_constraint
+  verify_launch_agent_plist
   sign_artifacts
   verify_release_identity
   verify_app_signature

@@ -27,10 +27,17 @@ struct SummondApp: App {
     guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
       return
     }
-    if CommandLine.arguments.contains("--restart-agent") {
+    if CommandLine.arguments.contains("--refresh-services") {
+      NSApplication.shared.setActivationPolicy(.prohibited)
       Task { @MainActor in
-        await model.restartService()
-        NSApplication.shared.terminate(nil)
+        guard await model.refreshEnabledServices() else {
+          let message =
+            model.serviceError ?? model.agentConnectionError ?? model.statusItemError
+            ?? "An enabled background service did not become ready."
+          FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+          exit(EXIT_FAILURE)
+        }
+        exit(EXIT_SUCCESS)
       }
       return
     }

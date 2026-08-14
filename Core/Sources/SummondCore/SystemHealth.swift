@@ -47,9 +47,7 @@ public enum SystemHealth: Equatable, Sendable {
   /// Evaluates health in the status process, which can observe only the agent.
   ///
   /// Ordered by severity: configuration problems and a dead shortcut listener
-  /// are reported before a missing Accessibility permission, which is setup
-  /// work and only applies while a binding actually uses a window-managing
-  /// open mode -- shortcut delivery itself needs no permission.
+  /// are reported before a missing Accessibility permission.
   public static func evaluate(agentStatus: AgentStatus?) -> SystemHealth {
     guard let agentStatus else {
       return .degraded(.agentUnavailable)
@@ -85,7 +83,7 @@ public enum SystemHealth: Equatable, Sendable {
       )
     }
 
-    if agentStatus.accessibilityRequired && !agentStatus.accessibilityGranted {
+    if !agentStatus.accessibilityGranted {
       return .setupRequired(.accessibilityPermission)
     }
 

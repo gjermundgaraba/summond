@@ -220,7 +220,9 @@ private final class StatusMenuModel {
   }
 
   private func openMainApplication(path: String) {
-    if let url = URL(string: "summond://\(path)"), NSWorkspace.shared.open(url) {
+    if let url = URL(string: "\(SummondBundleIdentifiers.urlScheme)://\(path)"),
+      NSWorkspace.shared.open(url)
+    {
       return
     }
 
